@@ -11,6 +11,8 @@ HOURLY_VARS = (
     "freezing_level_height,weather_code"
 )
 
+DAILY_VARS = "sunrise,sunset"
+
 
 def parse_openmeteo_hourly(data, hour_index):
     """Parse Open-Meteo response at a specific hour index."""
@@ -48,6 +50,33 @@ def find_data_for_time(data, target_time):
     return parse_openmeteo_hourly(data, best_index)
 
 
+def find_sun_times_for_date(data, target_time):
+    """Extract sunrise/sunset for the date matching target_time from Open-Meteo daily data.
+
+    Returns {"sunrise": "...", "sunset": "..."} or None if no daily data.
+    Falls back to first day if target date not found.
+    """
+    daily = data.get("daily")
+    if not daily:
+        return None
+
+    dates = daily.get("time", [])
+    sunrises = daily.get("sunrise", [])
+    sunsets = daily.get("sunset", [])
+
+    if not dates or not sunrises or not sunsets:
+        return None
+
+    target_date_str = target_time.strftime("%Y-%m-%d")
+
+    for i, d in enumerate(dates):
+        if d == target_date_str:
+            return {"sunrise": sunrises[i], "sunset": sunsets[i]}
+
+    # Fallback to first day
+    return {"sunrise": sunrises[0], "sunset": sunsets[0]}
+
+
 async def fetch_openmeteo(latitudes, longitudes, forecast_days=7, session=None):
     """Fetch Open-Meteo forecast for multiple coordinates.
     Returns: list of raw response dicts (one per coordinate).
@@ -64,6 +93,7 @@ async def fetch_openmeteo(latitudes, longitudes, forecast_days=7, session=None):
             "latitude": lat_str,
             "longitude": lon_str,
             "hourly": HOURLY_VARS,
+            "daily": DAILY_VARS,
             "forecast_days": forecast_days,
             "temperature_unit": "celsius",
             "wind_speed_unit": "kmh",

@@ -1,4 +1,5 @@
-from assembler import merge_weather, compute_severity, classify_rain_intensity, classify_fog_level, build_segments
+from assembler import merge_weather, compute_severity, classify_rain_intensity, classify_fog_level, classify_light_level, build_segments
+from datetime import datetime, timezone, timedelta
 
 def test_merge_weather_averages_temperature():
     nws = {"temperature_f": 48, "precipitation_probability": 20, "wind_speed_mph": 10, "condition_text": "Cloudy"}
@@ -133,3 +134,48 @@ def test_build_segments_source_links_includes_caltrans_when_chain_control():
         chain_controls=chain_controls,
     )
     assert "caltrans" in segments[0]["source_links"]
+
+
+# ── classify_light_level tests ──────────────────────────────────────
+
+def test_classify_light_level_day():
+    """Noon is firmly daytime."""
+    pst = timezone(timedelta(hours=-8))
+    eta = datetime(2026, 2, 18, 12, 0, tzinfo=pst)
+    sunrise = "2026-02-18T06:55"
+    sunset = "2026-02-18T17:45"
+    assert classify_light_level(eta, sunrise, sunset) == "day"
+
+
+def test_classify_light_level_twilight_sunset():
+    """15 minutes before sunset is twilight."""
+    pst = timezone(timedelta(hours=-8))
+    eta = datetime(2026, 2, 18, 17, 30, tzinfo=pst)
+    sunrise = "2026-02-18T06:55"
+    sunset = "2026-02-18T17:45"
+    assert classify_light_level(eta, sunrise, sunset) == "twilight"
+
+
+def test_classify_light_level_twilight_sunrise():
+    """15 minutes before sunrise is twilight (within 30 min window)."""
+    pst = timezone(timedelta(hours=-8))
+    eta = datetime(2026, 2, 18, 6, 40, tzinfo=pst)
+    sunrise = "2026-02-18T06:55"
+    sunset = "2026-02-18T17:45"
+    assert classify_light_level(eta, sunrise, sunset) == "twilight"
+
+
+def test_classify_light_level_night():
+    """8 PM is after sunset, so night."""
+    pst = timezone(timedelta(hours=-8))
+    eta = datetime(2026, 2, 18, 20, 0, tzinfo=pst)
+    sunrise = "2026-02-18T06:55"
+    sunset = "2026-02-18T17:45"
+    assert classify_light_level(eta, sunrise, sunset) == "night"
+
+
+def test_classify_light_level_no_data():
+    """When sunrise/sunset are None, default to 'day'."""
+    pst = timezone(timedelta(hours=-8))
+    eta = datetime(2026, 2, 18, 20, 0, tzinfo=pst)
+    assert classify_light_level(eta, None, None) == "day"

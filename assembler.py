@@ -1,5 +1,5 @@
 # assembler.py
-from datetime import datetime
+from datetime import datetime, timedelta
 from routing import haversine_miles
 from road_conditions import match_chain_control_to_instruction
 
@@ -22,6 +22,48 @@ def classify_fog_level(visibility_miles):
         return "patchy"
     else:
         return "dense"
+
+
+def classify_light_level(eta, sunrise_str, sunset_str):
+    """Classify light level at a given ETA based on sunrise/sunset times.
+
+    Returns 'day', 'twilight', or 'night'.
+    - Day: ETA is > 30 min after sunrise AND > 30 min before sunset
+    - Twilight: ETA is within 30 min of sunrise or sunset
+    - Night: everything else
+    - If sunrise_str or sunset_str is None, default to 'day'
+    """
+    if sunrise_str is None or sunset_str is None:
+        return "day"
+
+    sunrise = datetime.fromisoformat(sunrise_str)
+    sunset = datetime.fromisoformat(sunset_str)
+
+    # Handle timezone-naive sunrise/sunset vs timezone-aware ETA
+    if sunrise.tzinfo is None and eta.tzinfo is not None:
+        sunrise = sunrise.replace(tzinfo=eta.tzinfo)
+    if sunset.tzinfo is None and eta.tzinfo is not None:
+        sunset = sunset.replace(tzinfo=eta.tzinfo)
+
+    margin = timedelta(minutes=30)
+
+    diff_from_sunrise = (eta - sunrise).total_seconds()
+    diff_from_sunset = (sunset - eta).total_seconds()
+
+    # Within 30 min of sunrise (before or after)
+    if abs(diff_from_sunrise) <= margin.total_seconds():
+        return "twilight"
+
+    # Within 30 min of sunset (before or after)
+    if abs(diff_from_sunset) <= margin.total_seconds():
+        return "twilight"
+
+    # After sunrise+30min and before sunset-30min => day
+    if diff_from_sunrise > margin.total_seconds() and diff_from_sunset > margin.total_seconds():
+        return "day"
+
+    # Everything else is night
+    return "night"
 
 
 def merge_weather(nws=None, openmeteo=None, tomorrow=None):
