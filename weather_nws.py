@@ -108,6 +108,8 @@ async def fetch_nws_alerts(lat, lon, session=None):
                 "headline": props.get("headline", ""),
                 "severity": props.get("severity", "").lower(),
                 "description": props.get("description", ""),
+                "expires": props.get("expires"),
+                "onset": props.get("onset"),
             })
         return alerts
 

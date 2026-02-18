@@ -41,3 +41,67 @@ def test_find_forecast_fallback_naive_starttime():
     result = find_forecast_for_time(periods, target)
     assert result is not None
     assert result["temperature_f"] == 48
+
+
+def test_fetch_nws_alerts_includes_expires_and_onset():
+    """Alert dicts must include expires and onset fields from NWS properties."""
+    from unittest.mock import AsyncMock, MagicMock
+    import asyncio
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.json = AsyncMock(return_value={
+        "features": [{
+            "properties": {
+                "event": "Winter Storm Warning",
+                "headline": "Winter Storm Warning issued February 21",
+                "severity": "Severe",
+                "description": "Heavy snow expected.",
+                "expires": "2026-02-21T18:00:00-08:00",
+                "onset": "2026-02-21T06:00:00-08:00",
+            }
+        }]
+    })
+    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_response.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(return_value=mock_response)
+
+    from weather_nws import fetch_nws_alerts
+    alerts = asyncio.run(fetch_nws_alerts(37.5, -122.1, session=mock_session))
+
+    assert len(alerts) == 1
+    assert alerts[0]["expires"] == "2026-02-21T18:00:00-08:00"
+    assert alerts[0]["onset"] == "2026-02-21T06:00:00-08:00"
+
+
+def test_fetch_nws_alerts_missing_expires_returns_none():
+    """When NWS alert has no expires field, it should be None."""
+    from unittest.mock import AsyncMock, MagicMock
+    import asyncio
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.json = AsyncMock(return_value={
+        "features": [{
+            "properties": {
+                "event": "Flood Watch",
+                "headline": "Flood Watch",
+                "severity": "Moderate",
+                "description": "Possible flooding.",
+            }
+        }]
+    })
+    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_response.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(return_value=mock_response)
+
+    from weather_nws import fetch_nws_alerts
+    alerts = asyncio.run(fetch_nws_alerts(37.5, -122.1, session=mock_session))
+
+    assert len(alerts) == 1
+    assert alerts[0]["expires"] is None
+    assert alerts[0]["onset"] is None
