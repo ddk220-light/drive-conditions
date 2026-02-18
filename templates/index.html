@@ -1144,10 +1144,20 @@ body {
   });
 
   /* ── Init ──────────────────────────────────────────── */
-  google.maps.importLibrary("maps").then(function() {
-    google.maps.importLibrary("geometry").then(function() {
-      initMap();
-    });
+  Promise.all([
+    google.maps.importLibrary("maps"),
+    google.maps.importLibrary("geometry"),
+    google.maps.importLibrary("places"),
+  ]).then(function() {
+    initMap();
+
+    var autocompleteOptions = {
+      componentRestrictions: { country: "us" },
+      fields: ["formatted_address"],
+    };
+
+    new google.maps.places.Autocomplete(originEl, autocompleteOptions);
+    new google.maps.places.Autocomplete(destEl, autocompleteOptions);
   });
 
 })();
