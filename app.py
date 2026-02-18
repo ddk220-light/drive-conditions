@@ -12,6 +12,18 @@ from weather_tomorrow import fetch_tomorrow, find_data_for_time as find_tomorrow
 from road_conditions import fetch_chain_controls, fetch_rwis_stations, match_rwis_to_waypoint
 from assembler import merge_weather, build_segments
 
+
+def alert_active_at(alert, eta):
+    """Return True if alert is still active at the given ETA."""
+    expires_str = alert.get("expires")
+    if not expires_str:
+        return True
+    expires = datetime.fromisoformat(expires_str)
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return expires > eta
+
+
 app = Flask(__name__)
 
 
@@ -85,6 +97,7 @@ async def fetch_all_weather(waypoints, etas):
         road_data.append(rwis_match)
 
         seg_alerts = nws_alerts[i] if i < len(nws_alerts) else []
+        seg_alerts = [a for a in seg_alerts if alert_active_at(a, eta)]
         alerts_by_segment.append(seg_alerts)
 
     sources = sorted(sources_set)
