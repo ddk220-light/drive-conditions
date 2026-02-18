@@ -302,6 +302,27 @@ body {
   color: #991b1b;
 }
 
+.segment-sources {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.segment-sources a {
+  font-size: 11px;
+  color: #64748b;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.segment-sources a:hover {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+
 /* ── Alert Banner ────────────────────────────────────── */
 .alert-banner {
   padding: 12px 20px;
@@ -881,6 +902,29 @@ body {
         var ccLevel = rc.chain_control.level || "Active";
         ccDiv.innerHTML = "&#9888; Chain Control: " + escapeHtml(ccLevel);
         card.appendChild(ccDiv);
+      }
+
+      // Source links
+      var sourceLinks = seg.source_links || {};
+      var linkKeys = Object.keys(sourceLinks);
+      if (linkKeys.length > 0) {
+        var srcDiv = document.createElement("div");
+        srcDiv.className = "segment-sources";
+        var sourceLabels = {
+          nws: "NWS Forecast",
+          open_meteo: "Open-Meteo",
+          tomorrow_io: "Tomorrow.io",
+          caltrans: "Caltrans QuickMap"
+        };
+        linkKeys.forEach(function(key) {
+          var a = document.createElement("a");
+          a.href = sourceLinks[key];
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.textContent = sourceLabels[key] || key;
+          srcDiv.appendChild(a);
+        });
+        card.appendChild(srcDiv);
       }
 
       // Click handler: pan map and open info window
