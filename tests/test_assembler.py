@@ -217,3 +217,51 @@ def test_weather_slowdown_dense_fog():
                "wind_speed_mph": 5, "wind_gusts_mph": 8,
                "snow_depth_in": 0, "precipitation_type": "none"}
     assert compute_weather_slowdown(weather) == 0.7
+
+
+# ── compute_severity light_level tests ─────────────────────────────
+
+def test_severity_night_heavy_rain():
+    """Night + heavy rain -> severity bump of +2."""
+    weather = {"rain_intensity": "heavy", "precipitation_mm_hr": 5.0,
+               "fog_level": "none", "visibility_miles": 10,
+               "wind_speed_mph": 10, "wind_gusts_mph": 12,
+               "snow_depth_in": 0, "precipitation_type": "rain",
+               "road_risk_score": None}
+    score_day, _ = compute_severity(weather, light_level="day")
+    score_night, _ = compute_severity(weather, light_level="night")
+    assert score_night == score_day + 2
+
+def test_severity_twilight_rain():
+    """Twilight + rain -> severity bump of +1."""
+    weather = {"rain_intensity": "light", "precipitation_mm_hr": 0.3,
+               "fog_level": "none", "visibility_miles": 10,
+               "wind_speed_mph": 10, "wind_gusts_mph": 12,
+               "snow_depth_in": 0, "precipitation_type": "rain",
+               "road_risk_score": None}
+    score_day, _ = compute_severity(weather, light_level="day")
+    score_twi, _ = compute_severity(weather, light_level="twilight")
+    assert score_twi == score_day + 1
+
+def test_build_segments_includes_light_level():
+    """Segments include light_level field."""
+    from datetime import datetime
+    from assembler import build_segments
+    waypoints = [(37.0, -122.0), (37.1, -122.1)]
+    etas = [datetime(2026, 2, 18, 8, 0), datetime(2026, 2, 18, 9, 0)]
+    weather_data = [{"temperature_f": 55, "wind_speed_mph": 5, "wind_gusts_mph": 8,
+                     "precipitation_mm_hr": 0, "rain_intensity": "none", "fog_level": "none",
+                     "visibility_miles": 10, "snow_depth_in": 0, "precipitation_type": "none",
+                     "condition_text": "Clear", "precipitation_probability": 0,
+                     "road_risk_score": None, "road_risk_label": None,
+                     "wind_direction_deg": 180, "freezing_level_ft": 8000}] * 2
+    road_data = [None, None]
+    alerts = [[], []]
+    light_levels = ["day", "twilight"]
+    sun_times = [{"sunrise": "2026-02-18T06:55", "sunset": "2026-02-18T17:45"}] * 2
+    segments = build_segments(waypoints, etas, [], weather_data, road_data, alerts,
+                              light_levels=light_levels, sun_times=sun_times)
+    assert segments[0]["light_level"] == "day"
+    assert segments[1]["light_level"] == "twilight"
+    assert "sunrise" in segments[0]
+    assert "sunset" in segments[0]

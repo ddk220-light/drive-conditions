@@ -5,12 +5,12 @@ from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, render_template
 
 import config
-from routing import fetch_route, decode_polyline, sample_waypoints, compute_etas, build_station_aware_waypoints
+from routing import fetch_route, decode_polyline, sample_waypoints, compute_etas, compute_adjusted_etas, build_station_aware_waypoints
 from weather_nws import fetch_nws_forecast, fetch_nws_alerts, find_forecast_for_time
 from weather_openmeteo import fetch_openmeteo, find_data_for_time as find_openmeteo_for_time
 from weather_tomorrow import fetch_tomorrow, find_data_for_time as find_tomorrow_for_time
 from road_conditions import fetch_chain_controls, fetch_rwis_stations, match_rwis_to_waypoint
-from assembler import merge_weather, build_segments
+from assembler import merge_weather, build_segments, compute_weather_slowdown, classify_light_level
 
 
 def _wp_lat(wp):
@@ -181,17 +181,72 @@ def resolve_weather_for_etas(raw, waypoints, etas):
     return weather_data, road_data, alerts_by_segment, chain_controls, sources
 
 
-def build_slot_data(slot_departure, waypoints, route, raw_weather):
+def build_slot_data(slot_departure, waypoints, route, raw_weather,
+                    base_speed_factor=1.0, rest_stop_info=None, rest_duration_minutes=0):
     """Build segments + alerts for a single departure time using pre-fetched weather."""
-    etas = compute_etas(waypoints, route["total_duration_seconds"], slot_departure)
-    weather_data, road_data, alerts_by_segment, chain_controls, sources = resolve_weather_for_etas(
-        raw_weather, waypoints, etas
-    )
+    from weather_openmeteo import find_sun_times_for_date
+    from rest_stops import apply_rest_stop_delays, insert_rest_stop_segments
+
+    # 1. Initial ETAs with base speed
+    initial_etas = compute_etas(
+        waypoints, route["total_duration_seconds"], slot_departure)
+    # Apply base speed: slower speed = longer trip
+    if base_speed_factor < 1.0:
+        scaled = route["total_duration_seconds"] / base_speed_factor
+        initial_etas = compute_etas(waypoints, scaled, slot_departure)
+
+    # 2. First weather resolve
+    weather_data, road_data, alerts_by_segment, chain_controls, sources = \
+        resolve_weather_for_etas(raw_weather, waypoints, initial_etas)
+
+    # 3. Compute weather slowdowns per segment (N-1 slowdowns for N waypoints)
+    openmeteo_results = raw_weather.get("openmeteo", [])
+    slowdowns = []
+    for i in range(len(weather_data) - 1):
+        # Quick light level for slowdown calc
+        om = openmeteo_results[i] if i < len(openmeteo_results) and openmeteo_results[i] else None
+        sun = find_sun_times_for_date(om, initial_etas[i]) if om else None
+        ll = classify_light_level(initial_etas[i], sun["sunrise"] if sun else None, sun["sunset"] if sun else None)
+        slowdowns.append(compute_weather_slowdown(weather_data[i], ll))
+
+    # 4. Adjusted ETAs
+    adjusted_etas = compute_adjusted_etas(
+        waypoints, route["total_duration_seconds"], slot_departure,
+        base_speed_factor, slowdowns)
+
+    # 5. Apply rest stop delays
+    if rest_stop_info:
+        rest_indices = [rs["after_segment_index"] for rs in rest_stop_info]
+        final_etas = apply_rest_stop_delays(adjusted_etas, rest_indices, rest_duration_minutes)
+    else:
+        final_etas = adjusted_etas
+
+    # 6. Second weather resolve with final ETAs
+    weather_data, road_data, alerts_by_segment, chain_controls, sources = \
+        resolve_weather_for_etas(raw_weather, waypoints, final_etas)
+
+    # 7. Compute final light levels and sun times
+    light_levels = []
+    sun_times_list = []
+    for i, eta in enumerate(final_etas):
+        om = openmeteo_results[i] if i < len(openmeteo_results) and openmeteo_results[i] else None
+        sun = find_sun_times_for_date(om, eta) if om else None
+        sun_times_list.append(sun)
+        if sun:
+            light_levels.append(classify_light_level(eta, sun["sunrise"], sun["sunset"]))
+        else:
+            light_levels.append("day")
+
+    # 8. Build segments
     segments = build_segments(
-        waypoints, etas, route["steps"],
+        waypoints, final_etas, route["steps"],
         weather_data, road_data, alerts_by_segment,
-        chain_controls=chain_controls,
+        chain_controls=chain_controls, light_levels=light_levels, sun_times=sun_times_list,
     )
+
+    # 9. Insert rest stop pseudo-segments
+    if rest_stop_info:
+        segments = insert_rest_stop_segments(segments, rest_stop_info, rest_duration_minutes)
 
     # Deduplicate alerts
     all_alerts = []
@@ -207,7 +262,7 @@ def build_slot_data(slot_departure, waypoints, route, raw_weather):
                     if a.get("headline") == key:
                         a["affected_segments"].append(i)
 
-    arrival = slot_departure + timedelta(seconds=route["total_duration_seconds"])
+    arrival = final_etas[-1]
 
     return {
         "segments": segments,
@@ -247,7 +302,12 @@ def route_weather():
     if departure < now - timedelta(minutes=5):
         return jsonify({"error": "Departure time must be in the future."}), 400
 
-    async def do_work():
+    speed_factor = max(0.5, min(1.0, float(request.args.get("speed_factor", "1.0"))))
+    rest_enabled = request.args.get("rest_enabled", "false") == "true"
+    rest_interval = max(30, min(180, int(request.args.get("rest_interval", "60"))))
+    rest_duration = max(5, min(60, int(request.args.get("rest_duration", "20"))))
+
+    async def do_work(speed_factor, rest_enabled, rest_interval, rest_duration):
         import aiohttp
 
         route = await fetch_route(origin, destination, departure.isoformat())
@@ -261,15 +321,36 @@ def route_weather():
 
         raw_weather = await fetch_raw_weather(waypoints, rwis_stations=rwis_stations)
 
-        # Selected departure data (backward compat)
-        selected = build_slot_data(departure, waypoints, route, raw_weather)
+        # Compute rest stop locations once for selected departure
+        rest_stop_info = None
+        if rest_enabled:
+            from rest_stops import compute_rest_stop_positions, fetch_rest_stop_places
 
-        # Compute all slider slots
+            initial_etas = compute_etas(waypoints, route["total_duration_seconds"], departure)
+            weather_data_init, _, _, _, _ = resolve_weather_for_etas(raw_weather, waypoints, initial_etas)
+            slowdowns = [compute_weather_slowdown(weather_data_init[i])
+                         for i in range(len(weather_data_init) - 1)]
+            adjusted_etas = compute_adjusted_etas(
+                waypoints, route["total_duration_seconds"], departure,
+                speed_factor, slowdowns)
+            positions = compute_rest_stop_positions(adjusted_etas, rest_interval)
+
+            if positions:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                    rest_stop_info = await fetch_rest_stop_places(positions, waypoints, session)
+
+        # Build selected slot
+        selected = build_slot_data(departure, waypoints, route, raw_weather,
+                                   speed_factor, rest_stop_info, rest_duration)
+
+        # Build all slider slots
         now_local = datetime.now(tz=timezone.utc).astimezone(departure.tzinfo)
         slot_times = compute_slider_range(departure, now_local)
         slots = {}
         for slot_dep in slot_times:
-            slots[slot_dep.isoformat()] = build_slot_data(slot_dep, waypoints, route, raw_weather)
+            slots[slot_dep.isoformat()] = build_slot_data(
+                slot_dep, waypoints, route, raw_weather,
+                speed_factor, rest_stop_info, rest_duration)
 
         total_miles = round(route["total_distance_meters"] / 1609.344, 1)
         total_minutes = round(route["total_duration_seconds"] / 60)
@@ -296,7 +377,7 @@ def route_weather():
         }
 
     try:
-        result = asyncio.run(do_work())
+        result = asyncio.run(do_work(speed_factor, rest_enabled, rest_interval, rest_duration))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(result)

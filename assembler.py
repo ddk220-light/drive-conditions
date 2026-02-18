@@ -163,7 +163,7 @@ def merge_weather(nws=None, openmeteo=None, tomorrow=None):
     return result
 
 
-def compute_severity(weather, road_conditions=None, alerts=None):
+def compute_severity(weather, road_conditions=None, alerts=None, light_level="day"):
     """Compute severity score (0-10) and label (green/yellow/red)."""
     score = 0
     alerts = alerts or []
@@ -231,6 +231,20 @@ def compute_severity(weather, road_conditions=None, alerts=None):
         elif sev == "moderate":
             score += 1
 
+    # Light level adjustments
+    has_weather_hazard = (
+        weather.get("rain_intensity", "none") != "none" or
+        weather.get("fog_level", "none") != "none" or
+        weather.get("wind_speed_mph", 0) >= 25
+    )
+
+    if light_level == "night" and has_weather_hazard:
+        heavy = (weather.get("rain_intensity") == "heavy" or
+                 weather.get("fog_level") == "dense")
+        score += 2 if heavy else 1
+    elif light_level == "twilight" and has_weather_hazard:
+        score += 1
+
     score = min(10, round(score))
 
     if score <= 3:
@@ -262,7 +276,7 @@ def _wp_coords(wp):
 
 
 def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts_by_segment,
-                   chain_controls=None):
+                   chain_controls=None, light_levels=None, sun_times=None):
     """Assemble the final segments list for the API response."""
     segments = []
     cumulative_miles = 0.0
@@ -312,8 +326,10 @@ def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts
         if cc_match:
             road_for_severity["chain_control"] = cc_match
 
+        light = light_levels[i] if light_levels and i < len(light_levels) else "day"
+
         severity_score, severity_label = compute_severity(
-            weather, road_for_severity or None, seg_alerts
+            weather, road_for_severity or None, seg_alerts, light_level=light
         )
 
         rounded_lat = round(wp_lat, 5)
@@ -341,6 +357,15 @@ def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts
                 rounded_lat, rounded_lon, weather, road_for_severity
             ),
         }
+
+        seg["light_level"] = light
+        if sun_times and i < len(sun_times) and sun_times[i]:
+            st = sun_times[i]
+            # Extract just HH:MM from ISO time strings
+            sr = st.get("sunrise", "")
+            ss = st.get("sunset", "")
+            seg["sunrise"] = sr[-5:] if len(sr) >= 5 else sr
+            seg["sunset"] = ss[-5:] if len(ss) >= 5 else ss
 
         if station_name is not None:
             seg["station_name"] = station_name
