@@ -483,7 +483,12 @@ body {
 <div class="error-toast" id="error-toast"></div>
 
 <!-- ── Google Maps JS API ─────────────────────────────── -->
-<script src="https://maps.googleapis.com/maps/api/js?key={{ google_api_key }}&libraries=geometry"></script>
+<script>
+(g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__aw__",m="__gjsload__",aa=/__gjsload__/,e=globalThis,d=e[c]||(e[c]={}),b=d.maps||(d.maps={}),r=new Set,t=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=e.document.createElement("script"));t.set("libraries",[...r]+"");for(k in g)t.set(k.replace(/[A-Z]/g,j=>"_"+j[0].toLowerCase()),g[k]);t.set("callback",c+".maps."+q);a.src=`https://maps.googleapis.com/maps/api/js?`+t;d.maps[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=e.document.querySelector("script[nonce]")?.nonce||"";e.document.head.append(a)}));b[l]?console.warn(p+" only loads once."):b[l]=(f,...n)=>r.add(f)&&u().then(()=>b[l](f,...n))})({
+  key: "{{ google_api_key }}",
+  v: "weekly",
+});
+</script>
 
 <script>
 (function() {
@@ -1095,7 +1100,11 @@ body {
   });
 
   /* ── Init ──────────────────────────────────────────── */
-  initMap();
+  google.maps.importLibrary("maps").then(function() {
+    google.maps.importLibrary("geometry").then(function() {
+      initMap();
+    });
+  });
 
 })();
 </script>

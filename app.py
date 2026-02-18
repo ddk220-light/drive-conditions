@@ -87,6 +87,9 @@ def route_weather():
 
     try:
         departure = datetime.fromisoformat(departure_str)
+        # If no timezone provided (e.g. from datetime-local input), assume Pacific
+        if departure.tzinfo is None:
+            departure = departure.replace(tzinfo=timezone(timedelta(hours=-8)))
     except ValueError:
         return jsonify({"error": "Invalid departure format. Use ISO 8601."}), 400
 
