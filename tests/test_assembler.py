@@ -1,4 +1,4 @@
-from assembler import merge_weather, compute_severity, classify_rain_intensity, classify_fog_level
+from assembler import merge_weather, compute_severity, classify_rain_intensity, classify_fog_level, build_segments
 
 def test_merge_weather_averages_temperature():
     nws = {"temperature_f": 48, "precipitation_probability": 20, "wind_speed_mph": 10, "condition_text": "Cloudy"}
@@ -38,3 +38,72 @@ def test_classify_fog_level():
     assert classify_fog_level(10.0) == "none"
     assert classify_fog_level(3.0) == "patchy"
     assert classify_fog_level(0.5) == "dense"
+
+
+def test_build_segments_includes_source_links():
+    """Each segment should have source_links with NWS and Open-Meteo at minimum."""
+    waypoints = [(37.5, -122.1), (38.0, -122.5)]
+    from datetime import datetime, timezone
+    etas = [
+        datetime(2026, 2, 21, 6, 0, tzinfo=timezone.utc),
+        datetime(2026, 2, 21, 7, 0, tzinfo=timezone.utc),
+    ]
+    steps = []
+    weather_data = [
+        {"temperature_f": 50, "wind_speed_mph": 10, "wind_gusts_mph": 15,
+         "precipitation_mm_hr": 0, "visibility_miles": 10, "road_risk_score": 2},
+        {"temperature_f": 48, "wind_speed_mph": 12, "wind_gusts_mph": 18,
+         "precipitation_mm_hr": 0, "visibility_miles": 8},
+    ]
+    road_data = [None, None]
+    alerts_by_segment = [[], []]
+
+    segments = build_segments(waypoints, etas, steps, weather_data, road_data, alerts_by_segment)
+
+    assert "source_links" in segments[0]
+    links = segments[0]["source_links"]
+    assert "nws" in links
+    assert "37.5" in links["nws"]
+    assert "-122.1" in links["nws"]
+    assert "open_meteo" in links
+    assert "caltrans" not in links  # no chain control or pavement data
+
+
+def test_build_segments_source_links_includes_tomorrow_when_risk_present():
+    """Tomorrow.io link included when road_risk_score is present."""
+    waypoints = [(37.5, -122.1)]
+    from datetime import datetime, timezone
+    etas = [datetime(2026, 2, 21, 6, 0, tzinfo=timezone.utc)]
+    weather_data = [
+        {"temperature_f": 50, "wind_speed_mph": 10, "wind_gusts_mph": 15,
+         "precipitation_mm_hr": 0, "visibility_miles": 10,
+         "road_risk_score": 3, "road_risk_label": "Moderate"},
+    ]
+    road_data = [None]
+    alerts_by_segment = [[]]
+
+    segments = build_segments(waypoints, etas, [], weather_data, road_data, alerts_by_segment)
+    assert "tomorrow_io" in segments[0]["source_links"]
+
+
+def test_build_segments_source_links_includes_caltrans_when_chain_control():
+    """Caltrans link included when chain_control data exists."""
+    waypoints = [(37.5, -122.1)]
+    from datetime import datetime, timezone
+    etas = [datetime(2026, 2, 21, 6, 0, tzinfo=timezone.utc)]
+    weather_data = [
+        {"temperature_f": 50, "wind_speed_mph": 10, "wind_gusts_mph": 15,
+         "precipitation_mm_hr": 0, "visibility_miles": 10},
+    ]
+    road_data = [None]
+    alerts_by_segment = [[]]
+    chain_controls = [{"highway": "80", "level": "R2", "district": 3,
+                       "description": "Chains required"}]
+
+    segments = build_segments(
+        waypoints, etas,
+        [{"instruction": "Continue on I-80", "start_location": {"lat": 37.5, "lng": -122.1}}],
+        weather_data, road_data, alerts_by_segment,
+        chain_controls=chain_controls,
+    )
+    assert "caltrans" in segments[0]["source_links"]

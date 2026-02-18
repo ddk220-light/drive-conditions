@@ -155,6 +155,19 @@ def compute_severity(weather, road_conditions=None, alerts=None):
         return score, "red"
 
 
+def build_source_links(lat, lon, weather, road_conditions):
+    """Build dict of external source URLs for a segment."""
+    links = {
+        "nws": f"https://forecast.weather.gov/MapClick.php?lat={lat}&lon={lon}",
+        "open_meteo": f"https://open-meteo.com/en/docs#latitude={lat}&longitude={lon}",
+    }
+    if weather.get("road_risk_score") is not None:
+        links["tomorrow_io"] = "https://www.tomorrow.io/weather/"
+    if road_conditions and (road_conditions.get("chain_control") or road_conditions.get("pavement_status")):
+        links["caltrans"] = "https://roads.dot.ca.gov/"
+    return links
+
+
 def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts_by_segment,
                    chain_controls=None):
     """Assemble the final segments list for the API response."""
@@ -216,6 +229,9 @@ def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts
             },
             "severity_score": severity_score,
             "severity_label": severity_label,
+            "source_links": build_source_links(
+                round(wp[0], 5), round(wp[1], 5), weather, road_for_severity
+            ),
         })
 
     return segments
