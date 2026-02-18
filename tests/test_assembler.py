@@ -1,4 +1,4 @@
-from assembler import merge_weather, compute_severity, classify_rain_intensity, classify_fog_level, classify_light_level, build_segments
+from assembler import merge_weather, compute_severity, classify_rain_intensity, classify_fog_level, classify_light_level, build_segments, compute_weather_slowdown
 from datetime import datetime, timezone, timedelta
 
 def test_merge_weather_averages_temperature():
@@ -179,3 +179,41 @@ def test_classify_light_level_no_data():
     pst = timezone(timedelta(hours=-8))
     eta = datetime(2026, 2, 18, 20, 0, tzinfo=pst)
     assert classify_light_level(eta, None, None) == "day"
+
+
+# ── compute_weather_slowdown tests ──────────────────────────────────
+
+def test_weather_slowdown_clear():
+    """Clear weather -> no slowdown."""
+    weather = {"rain_intensity": "none", "fog_level": "none",
+               "wind_speed_mph": 10, "wind_gusts_mph": 12,
+               "snow_depth_in": 0, "precipitation_type": "none"}
+    assert compute_weather_slowdown(weather) == 1.0
+
+def test_weather_slowdown_heavy_rain():
+    """Heavy rain -> 0.70x."""
+    weather = {"rain_intensity": "heavy", "fog_level": "none",
+               "wind_speed_mph": 10, "wind_gusts_mph": 12,
+               "snow_depth_in": 0, "precipitation_type": "rain"}
+    assert compute_weather_slowdown(weather) == 0.7
+
+def test_weather_slowdown_compound():
+    """Heavy rain at night -> 0.70 * 0.90 = 0.63."""
+    weather = {"rain_intensity": "heavy", "fog_level": "none",
+               "wind_speed_mph": 10, "wind_gusts_mph": 12,
+               "snow_depth_in": 0, "precipitation_type": "rain"}
+    assert compute_weather_slowdown(weather, light_level="night") == 0.63
+
+def test_weather_slowdown_snow():
+    """Snow -> 0.65x."""
+    weather = {"rain_intensity": "none", "fog_level": "none",
+               "wind_speed_mph": 10, "wind_gusts_mph": 12,
+               "snow_depth_in": 2, "precipitation_type": "snow"}
+    assert compute_weather_slowdown(weather) == 0.65
+
+def test_weather_slowdown_dense_fog():
+    """Dense fog -> 0.70x."""
+    weather = {"rain_intensity": "none", "fog_level": "dense",
+               "wind_speed_mph": 5, "wind_gusts_mph": 8,
+               "snow_depth_in": 0, "precipitation_type": "none"}
+    assert compute_weather_slowdown(weather) == 0.7

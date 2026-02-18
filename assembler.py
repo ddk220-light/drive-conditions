@@ -66,6 +66,50 @@ def classify_light_level(eta, sunrise_str, sunset_str):
     return "night"
 
 
+def compute_weather_slowdown(weather, light_level="day"):
+    """Compute a speed slowdown factor (0.0-1.0) based on weather conditions.
+
+    Returns a float where 1.0 means no slowdown. Multiple factors compound
+    multiplicatively. Result is rounded to 3 decimal places.
+    """
+    factor = 1.0
+
+    # Rain intensity
+    rain = weather.get("rain_intensity", "none")
+    if rain == "light":
+        factor *= 0.90
+    elif rain == "moderate":
+        factor *= 0.80
+    elif rain == "heavy":
+        factor *= 0.70
+
+    # Snow
+    precip_type = weather.get("precipitation_type", "none")
+    snow_depth = weather.get("snow_depth_in", 0)
+    if precip_type == "snow" or snow_depth > 0:
+        factor *= 0.65
+
+    # Fog
+    fog = weather.get("fog_level", "none")
+    if fog == "dense":
+        factor *= 0.70
+    elif fog == "patchy":
+        factor *= 0.85
+
+    # Strong wind
+    wind_speed = weather.get("wind_speed_mph", 0)
+    wind_gusts = weather.get("wind_gusts_mph", 0)
+    effective_wind = max(wind_speed, wind_gusts * 0.7)
+    if effective_wind > 35:
+        factor *= 0.85
+
+    # Night + rain
+    if light_level == "night" and rain != "none":
+        factor *= 0.90
+
+    return round(factor, 3)
+
+
 def merge_weather(nws=None, openmeteo=None, tomorrow=None):
     """Merge weather data from up to 3 sources using design merge rules."""
     result = {}
