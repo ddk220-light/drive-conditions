@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, render_template
 
 import config
-from routing import fetch_route, decode_polyline, sample_waypoints, compute_etas
+from routing import fetch_route, decode_polyline, sample_waypoints, compute_etas, build_station_aware_waypoints
 from weather_nws import fetch_nws_forecast, fetch_nws_alerts, find_forecast_for_time
 from weather_openmeteo import fetch_openmeteo, find_data_for_time as find_openmeteo_for_time
 from weather_tomorrow import fetch_tomorrow, find_data_for_time as find_tomorrow_for_time
@@ -248,11 +248,18 @@ def route_weather():
         return jsonify({"error": "Departure time must be in the future."}), 400
 
     async def do_work():
+        import aiohttp
+
         route = await fetch_route(origin, destination, departure.isoformat())
         points = decode_polyline(route["polyline"])
-        waypoints = sample_waypoints(points)
 
-        raw_weather = await fetch_raw_weather(waypoints)
+        # Fetch RWIS stations early so we can build station-aware waypoints
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+            rwis_stations = await fetch_rwis_stations(session=session)
+
+        waypoints = build_station_aware_waypoints(points, rwis_stations)
+
+        raw_weather = await fetch_raw_weather(waypoints, rwis_stations=rwis_stations)
 
         # Selected departure data (backward compat)
         selected = build_slot_data(departure, waypoints, route, raw_weather)

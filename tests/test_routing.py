@@ -39,6 +39,23 @@ def test_compute_etas():
     assert etas[0] < etas[1] < etas[2]
 
 
+def test_compute_etas_with_dict_waypoints():
+    """compute_etas should handle dict waypoints with lat/lon keys."""
+    waypoints = [
+        {"lat": 37.77, "lon": -122.42, "type": "fill", "station": None},
+        {"lat": 38.00, "lon": -122.00, "type": "rwis", "station": {}},
+        {"lat": 38.58, "lon": -121.49, "type": "fill", "station": None},
+    ]
+    total_duration_seconds = 5400  # 90 minutes
+    departure = datetime(2026, 2, 21, 6, 0, tzinfo=timezone(timedelta(hours=-8)))
+
+    etas = compute_etas(waypoints, total_duration_seconds, departure)
+    assert len(etas) == 3
+    assert etas[0] == departure
+    assert etas[-1] == departure + timedelta(seconds=5400)
+    assert etas[0] < etas[1] < etas[2]
+
+
 def test_find_closest_polyline_point_on_route():
     """A point near the middle of a polyline should return its along-route distance."""
     # Straight line from (37.0, -122.0) to (39.0, -122.0) ~138 miles

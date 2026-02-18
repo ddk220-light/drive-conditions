@@ -168,6 +168,13 @@ def build_source_links(lat, lon, weather, road_conditions):
     return links
 
 
+def _wp_coords(wp):
+    """Extract (lat, lon) from a waypoint dict or tuple."""
+    if isinstance(wp, dict):
+        return wp["lat"], wp["lon"]
+    return wp[0], wp[1]
+
+
 def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts_by_segment,
                    chain_controls=None):
     """Assemble the final segments list for the API response."""
@@ -175,14 +182,25 @@ def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts
     cumulative_miles = 0.0
 
     for i, (wp, eta) in enumerate(zip(waypoints, etas)):
+        wp_lat, wp_lon = _wp_coords(wp)
         if i > 0:
-            cumulative_miles += haversine_miles(
-                waypoints[i-1][0], waypoints[i-1][1], wp[0], wp[1]
-            )
+            prev_lat, prev_lon = _wp_coords(waypoints[i-1])
+            cumulative_miles += haversine_miles(prev_lat, prev_lon, wp_lat, wp_lon)
 
         weather = weather_data[i] if i < len(weather_data) else {}
         road = road_data[i] if i < len(road_data) else None
         seg_alerts = alerts_by_segment[i] if i < len(alerts_by_segment) else []
+
+        # Extract data_source and station_name from dict waypoints
+        if isinstance(wp, dict):
+            data_source = wp.get("type", "fill")
+            station_name = None
+            station = wp.get("station")
+            if station and isinstance(station, dict):
+                station_name = station.get("location", {}).get("locationName")
+        else:
+            data_source = "fill"
+            station_name = None
 
         # Find matching turn instruction
         instruction = ""
@@ -193,7 +211,7 @@ def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts
                 sloc = step.get("start_location", {})
                 slat = sloc.get("latitude") or sloc.get("lat", 0)
                 slng = sloc.get("longitude") or sloc.get("lng", 0)
-                d = haversine_miles(wp[0], wp[1], slat, slng)
+                d = haversine_miles(wp_lat, wp_lon, slat, slng)
                 if d < best_dist:
                     best_dist = d
                     best_step = step
@@ -212,11 +230,14 @@ def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts
             weather, road_for_severity or None, seg_alerts
         )
 
-        segments.append({
+        rounded_lat = round(wp_lat, 5)
+        rounded_lon = round(wp_lon, 5)
+
+        seg = {
             "index": i,
             "location": {
-                "lat": round(wp[0], 5),
-                "lng": round(wp[1], 5),
+                "lat": rounded_lat,
+                "lng": rounded_lon,
             },
             "mile_marker": round(cumulative_miles, 1),
             "eta": eta.isoformat(),
@@ -229,9 +250,15 @@ def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts
             },
             "severity_score": severity_score,
             "severity_label": severity_label,
+            "data_source": data_source,
             "source_links": build_source_links(
-                round(wp[0], 5), round(wp[1], 5), weather, road_for_severity
+                rounded_lat, rounded_lon, weather, road_for_severity
             ),
-        })
+        }
+
+        if station_name is not None:
+            seg["station_name"] = station_name
+
+        segments.append(seg)
 
     return segments

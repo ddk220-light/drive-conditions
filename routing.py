@@ -216,6 +216,13 @@ def _interpolate_along_route(points, cumulative_dists, target_miles):
     return points[-1]
 
 
+def _coords(wp):
+    """Extract (lat, lon) from a waypoint dict or tuple."""
+    if isinstance(wp, dict):
+        return wp["lat"], wp["lon"]
+    return wp[0], wp[1]
+
+
 def compute_etas(waypoints, total_duration_seconds, departure):
     """Compute ETA at each waypoint assuming constant speed along the route."""
     if len(waypoints) <= 1:
@@ -223,8 +230,9 @@ def compute_etas(waypoints, total_duration_seconds, departure):
 
     distances = [0.0]
     for i in range(1, len(waypoints)):
-        d = haversine_miles(waypoints[i-1][0], waypoints[i-1][1],
-                           waypoints[i][0], waypoints[i][1])
+        lat1, lon1 = _coords(waypoints[i-1])
+        lat2, lon2 = _coords(waypoints[i])
+        d = haversine_miles(lat1, lon1, lat2, lon2)
         distances.append(distances[-1] + d)
 
     total_distance = distances[-1]

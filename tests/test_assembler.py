@@ -86,6 +86,32 @@ def test_build_segments_source_links_includes_tomorrow_when_risk_present():
     assert "tomorrow_io" in segments[0]["source_links"]
 
 
+def test_build_segments_with_dict_waypoints_and_data_source():
+    """build_segments should handle dict waypoints and include data_source field."""
+    from datetime import datetime, timezone
+    waypoints = [
+        {"lat": 37.5, "lon": -122.1, "type": "fill", "station": None},
+        {"lat": 38.0, "lon": -122.5, "type": "rwis", "station": {"location": {"locationName": "Echo Pass"}}},
+    ]
+    etas = [
+        datetime(2026, 2, 21, 6, 0, tzinfo=timezone.utc),
+        datetime(2026, 2, 21, 7, 0, tzinfo=timezone.utc),
+    ]
+    weather_data = [
+        {"temperature_f": 50, "wind_speed_mph": 10, "wind_gusts_mph": 15,
+         "precipitation_mm_hr": 0, "visibility_miles": 10},
+        {"temperature_f": 48, "wind_speed_mph": 12, "wind_gusts_mph": 18,
+         "precipitation_mm_hr": 0, "visibility_miles": 8},
+    ]
+    road_data = [None, None]
+    alerts_by_segment = [[], []]
+    segments = build_segments(waypoints, etas, [], weather_data, road_data, alerts_by_segment)
+    assert segments[0]["data_source"] == "fill"
+    assert segments[1]["data_source"] == "rwis"
+    assert segments[1].get("station_name") == "Echo Pass"
+    assert "station_name" not in segments[0]
+
+
 def test_build_segments_source_links_includes_caltrans_when_chain_control():
     """Caltrans link included when chain_control data exists."""
     waypoints = [(37.5, -122.1)]

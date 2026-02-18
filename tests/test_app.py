@@ -85,6 +85,13 @@ def test_fetch_raw_weather_accepts_rwis_stations_param():
     assert "rwis_stations" in sig.parameters, "fetch_raw_weather should accept rwis_stations param"
 
 
+def test_do_work_imports_build_station_aware_waypoints():
+    """The app module should import build_station_aware_waypoints."""
+    import app as app_module
+    source = open(app_module.__file__).read()
+    assert "build_station_aware_waypoints" in source
+
+
 def test_resolve_weather_uses_station_tag():
     """When a waypoint has type='rwis' and a station ref, resolve should use it directly."""
     from app import resolve_weather_for_etas
