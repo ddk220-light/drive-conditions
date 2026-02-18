@@ -1,5 +1,5 @@
 import math
-from routing import decode_polyline, sample_waypoints, compute_etas
+from routing import decode_polyline, sample_waypoints, compute_etas, haversine_miles, find_closest_polyline_point
 from datetime import datetime, timezone, timedelta
 
 def test_decode_polyline_basic():
@@ -37,3 +37,23 @@ def test_compute_etas():
     assert etas[0] == departure
     assert etas[-1] == departure + timedelta(seconds=5400)
     assert etas[0] < etas[1] < etas[2]
+
+
+def test_find_closest_polyline_point_on_route():
+    """A point near the middle of a polyline should return its along-route distance."""
+    # Straight line from (37.0, -122.0) to (39.0, -122.0) ~138 miles
+    points = [(37.0, -122.0), (37.5, -122.0), (38.0, -122.0), (38.5, -122.0), (39.0, -122.0)]
+    # Station at (38.0, -121.95) — very close to polyline at (38.0, -122.0)
+    dist_from_route, along_route_miles = find_closest_polyline_point(points, 38.0, -121.95)
+    assert dist_from_route < 5.0  # within 5 miles of route
+    # Along-route miles should be roughly half the total route
+    total = sum(haversine_miles(points[i][0], points[i][1], points[i+1][0], points[i+1][1])
+                for i in range(len(points) - 1))
+    assert 0.4 * total < along_route_miles < 0.6 * total
+
+
+def test_find_closest_polyline_point_far_away():
+    """A point far from the polyline should return large distance."""
+    points = [(37.0, -122.0), (38.0, -122.0), (39.0, -122.0)]
+    dist_from_route, along_route_miles = find_closest_polyline_point(points, 35.0, -118.0)
+    assert dist_from_route > 100  # far from route

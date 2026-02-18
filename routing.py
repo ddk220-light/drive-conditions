@@ -45,6 +45,28 @@ def haversine_miles(lat1, lon1, lat2, lon2):
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def find_closest_polyline_point(points, lat, lon):
+    """Find the closest point on a polyline to a given lat/lon.
+
+    Returns (distance_from_route_miles, along_route_miles).
+    distance_from_route_miles: straight-line distance from (lat, lon) to nearest polyline point.
+    along_route_miles: cumulative distance along the polyline to that nearest point.
+    """
+    best_dist = float("inf")
+    best_along = 0.0
+    cumulative = 0.0
+
+    for i, pt in enumerate(points):
+        if i > 0:
+            cumulative += haversine_miles(points[i-1][0], points[i-1][1], pt[0], pt[1])
+        d = haversine_miles(pt[0], pt[1], lat, lon)
+        if d < best_dist:
+            best_dist = d
+            best_along = cumulative
+
+    return best_dist, best_along
+
+
 def sample_waypoints(points, interval_miles=None):
     """Sample waypoints from a decoded polyline at regular distance intervals."""
     if interval_miles is None:
