@@ -295,6 +295,16 @@ body {
   font-weight: 500;
 }
 
+.station-badge {
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-size: .7rem;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+  margin-left: auto;
+}
+
 .segment-weather {
   font-size: 13px;
   color: #475569;
@@ -932,6 +942,13 @@ body {
       mileSpan.className = "segment-mile";
       mileSpan.textContent = idx === 0 ? "Start" : (isLast ? "Arrive" : "Mile " + seg.mile_marker);
       header.appendChild(mileSpan);
+      // Station badge (RWIS data source indicator)
+      if (seg.station_name) {
+        var stationSpan = document.createElement("span");
+        stationSpan.className = "station-badge";
+        stationSpan.textContent = seg.station_name + " RWIS";
+        header.appendChild(stationSpan);
+      }
       card.appendChild(header);
 
       // Weather line
