@@ -1055,7 +1055,9 @@ body {
     if (w.precipitation_probability) {
       html += '<div class="iw-row"><span class="iw-label">Precip</span><span>' + w.precipitation_probability + '%';
       if (w.rain_intensity && w.rain_intensity !== "none") {
-        html += ' (' + w.rain_intensity + ')';
+        html += ' (' + w.rain_intensity;
+        if (w.precipitation_mm_hr) { html += ', ' + w.precipitation_mm_hr.toFixed(1) + ' mm/hr'; }
+        html += ')';
       }
       html += '</span></div>';
     }
@@ -1198,8 +1200,10 @@ body {
 
       // Precip badge
       if (w.rain_intensity && w.rain_intensity !== "none") {
+        var precipRate = w.precipitation_mm_hr ? ' ' + w.precipitation_mm_hr.toFixed(1) + ' mm/hr' : '';
         weatherLine += ' <span class="precip-badge ' + w.rain_intensity + '">' +
           capitalize(w.rain_intensity) + ' ' + (w.precipitation_type || "rain") +
+          precipRate +
           ' (' + (w.precipitation_probability || 0) + '%)</span>';
       } else if (w.precipitation_probability && w.precipitation_probability > 30) {
         weatherLine += ' <span class="precip-badge light">' + w.precipitation_probability + '% precip</span>';
