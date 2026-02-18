@@ -112,6 +112,74 @@ body {
 #btn-route:active { transform: translateY(0); }
 #btn-route:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
+/* ── Departure Slider Bar ───────────────────────────── */
+.slider-bar {
+  background: #1e293b;
+  padding: 10px 24px 12px;
+  border-top: 1px solid #334155;
+}
+
+.slider-label {
+  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.slider-bound {
+  color: #64748b;
+  font-size: 11px;
+  white-space: nowrap;
+  min-width: 100px;
+}
+
+.slider-bound:last-child {
+  text-align: right;
+}
+
+#departure-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: #334155;
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+
+#departure-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: #3b82f6;
+  border-radius: 50%;
+  border: 2px solid #e2e8f0;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+#departure-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+#departure-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: #3b82f6;
+  border-radius: 50%;
+  border: 2px solid #e2e8f0;
+  cursor: pointer;
+}
+
 /* ── Main Layout ─────────────────────────────────────── */
 .main {
   flex: 1;
@@ -479,6 +547,16 @@ body {
   </div>
 </div>
 
+<!-- ── Departure Slider ────────────────────────────────── -->
+<div class="slider-bar" id="slider-bar" style="display:none;">
+  <div class="slider-label" id="slider-label">Departure: --</div>
+  <div class="slider-row">
+    <span class="slider-bound" id="slider-min-label">--</span>
+    <input type="range" id="departure-slider" min="0" max="96" value="48" step="1">
+    <span class="slider-bound" id="slider-max-label">--</span>
+  </div>
+</div>
+
 <!-- ── Main Content ───────────────────────────────────── -->
 <div class="main">
   <div id="map"></div>
@@ -544,6 +622,11 @@ body {
   const metaDur       = document.getElementById("meta-duration");
   const metaRoute     = document.getElementById("meta-route");
   const alertsContainer = document.getElementById("alerts-container");
+  const sliderBar      = document.getElementById("slider-bar");
+  const sliderEl       = document.getElementById("departure-slider");
+  const sliderLabel    = document.getElementById("slider-label");
+  const sliderMinLabel = document.getElementById("slider-min-label");
+  const sliderMaxLabel = document.getElementById("slider-max-label");
 
   /* ── Map setup ─────────────────────────────────────── */
   let map;
@@ -551,6 +634,11 @@ body {
   let markers = [];
   let infoWindows = [];
   let fogOverlays = [];
+  let currentSlots = null;
+  let slotKeys = [];
+  let currentRouteData = null;
+  let cachedFullPath = null;
+  let cachedPolyline = null;
 
   function initMap() {
     map = new google.maps.Map(mapDiv, {
@@ -585,11 +673,18 @@ body {
   };
 
   /* ── Draw route on map ─────────────────────────────── */
-  function drawRoute(data) {
+  function drawRoute(data, skipFitBounds) {
     clearMap();
 
     var encodedPath = data.route.polyline;
-    var fullPath = google.maps.geometry.encoding.decodePath(encodedPath);
+    var fullPath;
+    if (cachedPolyline === encodedPath && cachedFullPath) {
+      fullPath = cachedFullPath;
+    } else {
+      fullPath = google.maps.geometry.encoding.decodePath(encodedPath);
+      cachedFullPath = fullPath;
+      cachedPolyline = encodedPath;
+    }
     var segments = data.segments;
 
     if (segments.length === 0) return;
@@ -662,10 +757,12 @@ body {
       }
     });
 
-    // Fit map to route bounds
-    var bounds = new google.maps.LatLngBounds();
-    fullPath.forEach(function(p) { bounds.extend(p); });
-    map.fitBounds(bounds, { top: 20, right: 20, bottom: 20, left: 20 });
+    // Fit map to route bounds (skip when slider is changing to avoid map jumping)
+    if (!skipFitBounds) {
+      var bounds = new google.maps.LatLngBounds();
+      fullPath.forEach(function(p) { bounds.extend(p); });
+      map.fitBounds(bounds, { top: 20, right: 20, bottom: 20, left: 20 });
+    }
   }
 
   function closestPointIndex(path, loc) {
@@ -1024,6 +1121,69 @@ body {
     summaryBar.style.display = "block";
   }
 
+  function initSlider(data) {
+    currentSlots = data.slots;
+    currentRouteData = data;
+    slotKeys = Object.keys(currentSlots).sort();
+
+    if (slotKeys.length === 0) {
+      sliderBar.style.display = "none";
+      return;
+    }
+
+    sliderEl.min = 0;
+    sliderEl.max = slotKeys.length - 1;
+
+    // Find the index of the selected departure
+    var selectedKey = data.slider_range.selected;
+    var selectedIdx = slotKeys.indexOf(selectedKey);
+    if (selectedIdx < 0) {
+      selectedIdx = 0;
+      var selectedDate = new Date(selectedKey).getTime();
+      var bestDiff = Infinity;
+      for (var i = 0; i < slotKeys.length; i++) {
+        var diff = Math.abs(new Date(slotKeys[i]).getTime() - selectedDate);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          selectedIdx = i;
+        }
+      }
+    }
+
+    sliderEl.value = selectedIdx;
+    sliderMinLabel.textContent = formatSliderTime(slotKeys[0]);
+    sliderMaxLabel.textContent = formatSliderTime(slotKeys[slotKeys.length - 1]);
+    updateSliderLabel(selectedIdx);
+    sliderBar.style.display = "block";
+  }
+
+  function updateSliderLabel(idx) {
+    sliderLabel.textContent = "Departure: " + formatSliderTime(slotKeys[idx]);
+  }
+
+  function onSliderChange() {
+    var idx = parseInt(sliderEl.value, 10);
+    updateSliderLabel(idx);
+
+    var key = slotKeys[idx];
+    var slotData = currentSlots[key];
+    if (!slotData) return;
+
+    var displayData = {
+      route: Object.assign({}, currentRouteData.route, {
+        departure: slotData.departure,
+        arrival: slotData.arrival,
+      }),
+      segments: slotData.segments,
+      alerts: slotData.alerts,
+      sources: currentRouteData.sources,
+    };
+
+    drawRoute(displayData, true);
+    buildPanel(displayData);
+    buildSummary(displayData);
+  }
+
   /* ── API call ──────────────────────────────────────── */
   function fetchRoute() {
     var origin = originEl.value.trim();
@@ -1066,6 +1226,7 @@ body {
         drawRoute(data);
         buildPanel(data);
         buildSummary(data);
+        initSlider(data);
       })
       .catch(function(err) {
         showLoading(false);
@@ -1113,6 +1274,15 @@ body {
     return h + " hr " + m + " min";
   }
 
+  function formatSliderTime(isoStr) {
+    if (!isoStr) return "--";
+    var d = new Date(isoStr);
+    var days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return days[d.getDay()] + " " + months[d.getMonth()] + " " + d.getDate() + ", " +
+      d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  }
+
   function capitalize(s) {
     if (!s) return "";
     return s.charAt(0).toUpperCase() + s.slice(1);
@@ -1148,6 +1318,8 @@ body {
   departEl.addEventListener("keydown", function(e) {
     if (e.key === "Enter") { e.preventDefault(); fetchRoute(); }
   });
+
+  sliderEl.addEventListener("input", onSliderChange);
 
   /* ── Autocomplete helper ─────────────────────────────── */
   function setupAutocomplete(inputEl) {
