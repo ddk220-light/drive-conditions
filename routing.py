@@ -122,8 +122,11 @@ async def fetch_route(origin, destination, departure_time):
         async with session.post(url, json=body, headers=headers) as resp:
             data = await resp.json()
 
+    if "error" in data:
+        msg = data["error"].get("message", str(data["error"]))
+        raise ValueError(f"Routing API error: {msg}")
     if "routes" not in data or not data["routes"]:
-        raise ValueError(f"No route found: {data.get('error', data)}")
+        raise ValueError("No route found between those locations.")
 
     route = data["routes"][0]
     legs = route.get("legs", [])

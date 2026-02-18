@@ -124,6 +124,10 @@ def route_weather():
     except ValueError:
         return jsonify({"error": "Invalid departure format. Use ISO 8601."}), 400
 
+    now = datetime.now(tz=timezone.utc)
+    if departure < now - timedelta(minutes=5):
+        return jsonify({"error": "Departure time must be in the future."}), 400
+
     async def do_work():
         route = await fetch_route(origin, destination, departure.isoformat())
 

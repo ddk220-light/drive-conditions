@@ -84,6 +84,17 @@ body {
 .form-group input[type="text"] { width: 200px; }
 .form-group input[type="datetime-local"] { width: 210px; }
 
+/* Google Places Autocomplete element styling */
+.form-group gmp-place-autocomplete {
+  width: 200px;
+  --gmpx-color-surface: #0f172a;
+  --gmpx-color-on-surface: #e2e8f0;
+  --gmpx-color-on-surface-variant: #94a3b8;
+  --gmpx-color-primary: #3b82f6;
+  --gmpx-font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --gmpx-font-size-base: 14px;
+}
+
 #btn-route {
   padding: 9px 24px;
   background: linear-gradient(135deg, #3b82f6, #2563eb);
@@ -463,7 +474,7 @@ body {
     <label for="destination">To</label>
     <input type="text" id="destination" value="Mendocino, CA" placeholder="Destination">
     <label for="departure">Depart</label>
-    <input type="datetime-local" id="departure" value="2026-02-21T06:00">
+    <input type="datetime-local" id="departure">
     <button id="btn-route">Get Route</button>
   </div>
 </div>
@@ -516,8 +527,8 @@ body {
   "use strict";
 
   /* ── DOM refs ──────────────────────────────────────── */
-  const originEl      = document.getElementById("origin");
-  const destEl        = document.getElementById("destination");
+  var originEl      = document.getElementById("origin");
+  var destEl        = document.getElementById("destination");
   const departEl      = document.getElementById("departure");
   const btnRoute      = document.getElementById("btn-route");
   const mapDiv        = document.getElementById("map");
@@ -1133,31 +1144,114 @@ body {
   /* ── Event listeners ───────────────────────────────── */
   btnRoute.addEventListener("click", fetchRoute);
 
-  // Allow Enter key to trigger route fetch
-  [originEl, destEl, departEl].forEach(function(el) {
-    el.addEventListener("keydown", function(e) {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        fetchRoute();
-      }
-    });
+  // Enter key on departure input triggers route fetch
+  departEl.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") { e.preventDefault(); fetchRoute(); }
   });
 
+  /* ── Autocomplete helper ─────────────────────────────── */
+  function setupAutocomplete(inputEl) {
+    var ac = new google.maps.places.PlaceAutocompleteElement({
+      componentRestrictions: { country: "us" },
+    });
+
+    ac.style.width = inputEl.style.width || "200px";
+
+    var confirmedValue = inputEl.value;
+    var parent = inputEl.parentNode;
+    var nextSibling = inputEl.nextSibling;
+
+    // Replace the original input with the autocomplete element
+    parent.replaceChild(ac, inputEl);
+
+    // Detect API failure: if the inner input doesn't render within 3s, restore original
+    var restored = false;
+    var restoreTimer = setTimeout(function() {
+      try {
+        var inner = ac.shadowRoot && ac.shadowRoot.querySelector("input");
+        if (!inner) {
+          console.warn("Autocomplete element did not render, restoring plain input");
+          parent.replaceChild(inputEl, ac);
+          restored = true;
+        }
+      } catch (e) {
+        parent.replaceChild(inputEl, ac);
+        restored = true;
+      }
+    }, 3000);
+
+    // When a place is selected from dropdown, store its formatted address
+    ac.addEventListener("gmp-placeselect", async function(e) {
+      clearTimeout(restoreTimer);
+      var place = e.place;
+      await place.fetchFields({ fields: ["formattedAddress"] });
+      confirmedValue = place.formattedAddress || "";
+    });
+
+    // Enter key triggers route fetch
+    ac.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { e.preventDefault(); fetchRoute(); }
+    });
+
+    function getInnerInputValue() {
+      try {
+        var inner = ac.shadowRoot && ac.shadowRoot.querySelector("input");
+        return inner ? inner.value.trim() : "";
+      } catch (e) {
+        return "";
+      }
+    }
+
+    return {
+      get value() {
+        if (restored) return inputEl.value.trim();
+        var typed = getInnerInputValue();
+        if (typed && typed !== confirmedValue) return typed;
+        return confirmedValue;
+      },
+      set value(v) {
+        confirmedValue = v;
+        if (restored) inputEl.value = v;
+      },
+      el: ac,
+    };
+  }
+
   /* ── Init ──────────────────────────────────────────── */
+
+  // Set departure to tomorrow at 8:00 AM by default
+  (function() {
+    var tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(8, 0, 0, 0);
+    var pad = function(n) { return String(n).padStart(2, "0"); };
+    var iso = tomorrow.getFullYear() + "-" + pad(tomorrow.getMonth() + 1) + "-" + pad(tomorrow.getDate()) +
+              "T" + pad(tomorrow.getHours()) + ":" + pad(tomorrow.getMinutes());
+    departEl.value = iso;
+    // Also set min to now so the browser date picker blocks past times
+    var now = new Date();
+    var nowIso = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
+                 "T" + pad(now.getHours()) + ":" + pad(now.getMinutes());
+    departEl.min = nowIso;
+  })();
+
   Promise.all([
     google.maps.importLibrary("maps"),
     google.maps.importLibrary("geometry"),
-    google.maps.importLibrary("places"),
   ]).then(function() {
     initMap();
 
-    var autocompleteOptions = {
-      componentRestrictions: { country: "us" },
-      fields: ["formatted_address"],
-    };
-
-    new google.maps.places.Autocomplete(originEl, autocompleteOptions);
-    new google.maps.places.Autocomplete(destEl, autocompleteOptions);
+    // Load Places separately so map works even if Places fails
+    google.maps.importLibrary("places").then(function() {
+      try {
+        originEl = setupAutocomplete(originEl);
+        destEl = setupAutocomplete(destEl);
+      } catch (err) {
+        console.warn("Places autocomplete unavailable:", err);
+      }
+    }).catch(function(err) {
+      console.warn("Places library failed to load:", err);
+    });
   });
 
 })();
