@@ -42,10 +42,13 @@ def find_forecast_for_time(periods, target_time):
 
     # Fallback: return closest period
     if periods:
-        closest = min(periods,
-                      key=lambda p: abs(
-                          (datetime.fromisoformat(p["startTime"]) - target_time).total_seconds()
-                      ))
+        def _period_diff(p):
+            t = datetime.fromisoformat(p["startTime"])
+            if t.tzinfo is None and target_time.tzinfo is not None:
+                t = t.replace(tzinfo=timezone.utc)
+            return abs((t - target_time).total_seconds())
+
+        closest = min(periods, key=_period_diff)
         return parse_hourly_forecast(closest)
     return None
 
@@ -58,7 +61,7 @@ async def fetch_nws_forecast(lat, lon, session=None):
     headers = {"User-Agent": NWS_USER_AGENT, "Accept": "application/geo+json"}
     own_session = session is None
     if own_session:
-        session = aiohttp.ClientSession()
+        session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
 
     try:
         points_url = f"https://api.weather.gov/points/{lat:.4f},{lon:.4f}"
@@ -88,7 +91,7 @@ async def fetch_nws_alerts(lat, lon, session=None):
     headers = {"User-Agent": NWS_USER_AGENT, "Accept": "application/geo+json"}
     own_session = session is None
     if own_session:
-        session = aiohttp.ClientSession()
+        session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
 
     try:
         url = f"https://api.weather.gov/alerts/active?point={lat:.4f},{lon:.4f}"

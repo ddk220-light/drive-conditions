@@ -20,6 +20,7 @@ def test_parse_tomorrow_hourly():
     assert abs(result["temperature_f"] - 48.2) < 0.5
     assert result["precipitation_probability"] == 25
     assert result["precipitation_type"] == "rain"
+    assert abs(result["visibility_miles"] - 7.5) < 0.1  # 12 km → ~7.5 mi
     assert result["road_risk_score"] is None  # Not in basic response
 
 def test_find_data_for_time():

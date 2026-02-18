@@ -1,6 +1,7 @@
 # app.py
 import asyncio
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, render_template
 
 import config
@@ -18,7 +19,7 @@ async def fetch_all_weather(waypoints, etas):
     """Fetch weather from all 3 sources for all waypoints in parallel."""
     import aiohttp
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
         lats = [wp[0] for wp in waypoints]
         lons = [wp[1] for wp in waypoints]
         openmeteo_task = fetch_openmeteo(lats, lons, session=session)
@@ -47,6 +48,19 @@ async def fetch_all_weather(waypoints, etas):
     chain_controls = results[4] if not isinstance(results[4], Exception) else []
     rwis_stations = results[5] if not isinstance(results[5], Exception) else []
 
+    # Track which sources actually returned data
+    sources_set = set()
+    if not isinstance(results[0], Exception) and any(r is not None for r in openmeteo_results):
+        sources_set.add("Open-Meteo")
+    if not isinstance(results[1], Exception) and any(r is not None for r in nws_results):
+        sources_set.add("NWS")
+    if not isinstance(results[3], Exception) and any(r for r in tomorrow_results):
+        sources_set.add("Tomorrow.io")
+    if not isinstance(results[4], Exception) and chain_controls:
+        sources_set.add("Caltrans CWWP2")
+    if not isinstance(results[5], Exception) and rwis_stations:
+        sources_set.add("Caltrans CWWP2")
+
     weather_data = []
     road_data = []
     alerts_by_segment = []
@@ -73,7 +87,8 @@ async def fetch_all_weather(waypoints, etas):
         seg_alerts = nws_alerts[i] if i < len(nws_alerts) else []
         alerts_by_segment.append(seg_alerts)
 
-    return weather_data, road_data, alerts_by_segment, chain_controls
+    sources = sorted(sources_set)
+    return weather_data, road_data, alerts_by_segment, chain_controls, sources
 
 
 @app.route("/api/route-weather")
@@ -85,11 +100,14 @@ def route_weather():
     if not origin or not destination or not departure_str:
         return jsonify({"error": "Missing required params: origin, destination, departure"}), 400
 
+    if len(origin) > 500 or len(destination) > 500:
+        return jsonify({"error": "origin/destination too long (max 500 chars)"}), 400
+
     try:
         departure = datetime.fromisoformat(departure_str)
         # If no timezone provided (e.g. from datetime-local input), assume Pacific
         if departure.tzinfo is None:
-            departure = departure.replace(tzinfo=timezone(timedelta(hours=-8)))
+            departure = departure.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
     except ValueError:
         return jsonify({"error": "Invalid departure format. Use ISO 8601."}), 400
 
@@ -100,11 +118,12 @@ def route_weather():
         waypoints = sample_waypoints(points)
         etas = compute_etas(waypoints, route["total_duration_seconds"], departure)
 
-        weather_data, road_data, alerts_by_segment, chain_controls = await fetch_all_weather(waypoints, etas)
+        weather_data, road_data, alerts_by_segment, chain_controls, sources = await fetch_all_weather(waypoints, etas)
 
         segments = build_segments(
             waypoints, etas, route["steps"],
             weather_data, road_data, alerts_by_segment,
+            chain_controls=chain_controls,
         )
 
         all_alerts = []
@@ -125,8 +144,6 @@ def route_weather():
         total_minutes = round(route["total_duration_seconds"] / 60)
         arrival = departure + timedelta(seconds=route["total_duration_seconds"])
 
-        sources = ["NWS", "Open-Meteo", "Tomorrow.io", "Caltrans CWWP2"]
-
         return {
             "route": {
                 "summary": route["summary"],
@@ -141,13 +158,16 @@ def route_weather():
             "sources": sources,
         }
 
-    result = asyncio.run(do_work())
+    try:
+        result = asyncio.run(do_work())
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     return jsonify(result)
 
 
 @app.route("/")
 def index():
-    return render_template("index.html", google_api_key=config.GOOGLE_API_KEY)
+    return render_template("index.html", google_api_key=config.GOOGLE_MAPS_JS_KEY)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_MAPS_JS_KEY = os.getenv("GOOGLE_MAPS_JS_KEY", GOOGLE_API_KEY)
 TOMORROW_API_KEY = os.getenv("TOMORROW_API_KEY")
 
 NWS_USER_AGENT = "drive-conditions/1.0 (contact@example.com)"

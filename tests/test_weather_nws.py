@@ -31,3 +31,13 @@ def test_find_forecast_for_time():
                       tzinfo=timezone(timedelta(hours=-8)))
     result = find_forecast_for_time(periods, target)
     assert result["temperature_f"] == 48  # matches 6 AM period
+
+def test_find_forecast_fallback_naive_starttime():
+    """Fallback path with naive startTime and aware target_time must not crash."""
+    periods = [
+        {**SAMPLE_PERIOD, "startTime": "2026-02-21T06:00:00"},  # naive
+    ]
+    target = datetime(2026, 2, 21, 14, 0, tzinfo=timezone.utc)  # aware
+    result = find_forecast_for_time(periods, target)
+    assert result is not None
+    assert result["temperature_f"] == 48

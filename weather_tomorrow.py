@@ -2,6 +2,7 @@
 import aiohttp
 from datetime import datetime, timezone, timedelta
 from config import TOMORROW_API_KEY
+from utils import c_to_f, kmh_to_mph, km_to_miles
 
 TOMORROW_URL = "https://api.tomorrow.io/v4/timelines"
 
@@ -18,14 +19,6 @@ WEATHER_CODE_MAP = {
 }
 
 
-def c_to_f(c):
-    return round(c * 9 / 5 + 32, 1)
-
-
-def kmh_to_mph(kmh):
-    return round(kmh * 0.621371, 1)
-
-
 def parse_tomorrow_hourly(interval):
     """Parse a single Tomorrow.io timeline interval."""
     v = interval["values"]
@@ -38,7 +31,7 @@ def parse_tomorrow_hourly(interval):
         "precipitation_type": PRECIP_TYPE_MAP.get(precip_type_code, "unknown"),
         "wind_speed_mph": kmh_to_mph(v.get("windSpeed", 0)),
         "wind_gusts_mph": kmh_to_mph(v.get("windGust", 0)),
-        "visibility_miles": round(v.get("visibility", 16), 1),
+        "visibility_miles": km_to_miles(v.get("visibility", 16)),
         "weather_code": v.get("weatherCode"),
         "weather_text": WEATHER_CODE_MAP.get(v.get("weatherCode"), "Unknown"),
         "road_risk_score": v.get("roadRisk"),
@@ -71,7 +64,7 @@ async def fetch_tomorrow(lat, lon, session=None):
     """
     own_session = session is None
     if own_session:
-        session = aiohttp.ClientSession()
+        session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
 
     try:
         params = {

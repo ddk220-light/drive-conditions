@@ -1,6 +1,7 @@
 # weather_openmeteo.py
 import aiohttp
 from datetime import datetime, timezone, timedelta
+from utils import c_to_f, kmh_to_mph, m_to_miles, m_to_ft
 
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 
@@ -9,22 +10,6 @@ HOURLY_VARS = (
     "visibility,wind_speed_10m,wind_gusts_10m,wind_direction_10m,"
     "freezing_level_height,weather_code"
 )
-
-
-def c_to_f(c):
-    return round(c * 9 / 5 + 32, 1)
-
-
-def kmh_to_mph(kmh):
-    return round(kmh * 0.621371, 1)
-
-
-def m_to_miles(m):
-    return round(m / 1609.344, 1)
-
-
-def m_to_ft(m):
-    return round(m * 3.28084)
 
 
 def parse_openmeteo_hourly(data, hour_index):
@@ -69,7 +54,7 @@ async def fetch_openmeteo(latitudes, longitudes, forecast_days=7, session=None):
     """
     own_session = session is None
     if own_session:
-        session = aiohttp.ClientSession()
+        session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
 
     try:
         lat_str = ",".join(f"{lat:.4f}" for lat in latitudes)

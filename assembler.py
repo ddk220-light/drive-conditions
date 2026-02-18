@@ -1,5 +1,7 @@
 # assembler.py
 from datetime import datetime
+from routing import haversine_miles
+from road_conditions import match_chain_control_to_instruction
 
 
 def classify_rain_intensity(mm_hr):
@@ -153,14 +155,14 @@ def compute_severity(weather, road_conditions=None, alerts=None):
         return score, "red"
 
 
-def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts_by_segment):
+def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts_by_segment,
+                   chain_controls=None):
     """Assemble the final segments list for the API response."""
     segments = []
     cumulative_miles = 0.0
 
     for i, (wp, eta) in enumerate(zip(waypoints, etas)):
         if i > 0:
-            from routing import haversine_miles
             cumulative_miles += haversine_miles(
                 waypoints[i-1][0], waypoints[i-1][1], wp[0], wp[1]
             )
@@ -168,8 +170,6 @@ def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts
         weather = weather_data[i] if i < len(weather_data) else {}
         road = road_data[i] if i < len(road_data) else None
         seg_alerts = alerts_by_segment[i] if i < len(alerts_by_segment) else []
-
-        severity_score, severity_label = compute_severity(weather, road, seg_alerts)
 
         # Find matching turn instruction
         instruction = ""
@@ -180,13 +180,24 @@ def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts
                 sloc = step.get("start_location", {})
                 slat = sloc.get("latitude") or sloc.get("lat", 0)
                 slng = sloc.get("longitude") or sloc.get("lng", 0)
-                from routing import haversine_miles as hv
-                d = hv(wp[0], wp[1], slat, slng)
+                d = haversine_miles(wp[0], wp[1], slat, slng)
                 if d < best_dist:
                     best_dist = d
                     best_step = step
             if best_step:
                 instruction = best_step.get("instruction", "")
+
+        # Match chain controls to this segment's instruction
+        cc_match = match_chain_control_to_instruction(chain_controls, instruction)
+
+        # Build road_conditions for severity: merge RWIS data + chain control
+        road_for_severity = dict(road) if road else {}
+        if cc_match:
+            road_for_severity["chain_control"] = cc_match
+
+        severity_score, severity_label = compute_severity(
+            weather, road_for_severity or None, seg_alerts
+        )
 
         segments.append({
             "index": i,
@@ -199,7 +210,7 @@ def build_segments(waypoints, etas, route_steps, weather_data, road_data, alerts
             "turn_instruction": instruction,
             "weather": weather,
             "road_conditions": {
-                "chain_control": (road or {}).get("chain_control"),
+                "chain_control": cc_match,
                 "pavement_status": (road or {}).get("pavement_status"),
                 "alerts": seg_alerts,
             },
