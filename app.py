@@ -146,6 +146,42 @@ def resolve_weather_for_etas(raw, waypoints, etas):
     return weather_data, road_data, alerts_by_segment, chain_controls, sources
 
 
+def build_slot_data(slot_departure, waypoints, route, raw_weather):
+    """Build segments + alerts for a single departure time using pre-fetched weather."""
+    etas = compute_etas(waypoints, route["total_duration_seconds"], slot_departure)
+    weather_data, road_data, alerts_by_segment, chain_controls, sources = resolve_weather_for_etas(
+        raw_weather, waypoints, etas
+    )
+    segments = build_segments(
+        waypoints, etas, route["steps"],
+        weather_data, road_data, alerts_by_segment,
+        chain_controls=chain_controls,
+    )
+
+    # Deduplicate alerts
+    all_alerts = []
+    seen = set()
+    for i, seg_alerts in enumerate(alerts_by_segment):
+        for alert in seg_alerts:
+            key = alert.get("headline", "")
+            if key not in seen:
+                seen.add(key)
+                all_alerts.append({**alert, "affected_segments": [i]})
+            else:
+                for a in all_alerts:
+                    if a.get("headline") == key:
+                        a["affected_segments"].append(i)
+
+    arrival = slot_departure + timedelta(seconds=route["total_duration_seconds"])
+
+    return {
+        "segments": segments,
+        "alerts": all_alerts,
+        "departure": slot_departure.isoformat(),
+        "arrival": arrival.isoformat(),
+    }
+
+
 async def fetch_all_weather(waypoints, etas):
     """Fetch weather from all sources and resolve for given ETAs."""
     raw = await fetch_raw_weather(waypoints)
@@ -178,36 +214,23 @@ def route_weather():
 
     async def do_work():
         route = await fetch_route(origin, destination, departure.isoformat())
-
         points = decode_polyline(route["polyline"])
         waypoints = sample_waypoints(points)
-        etas = compute_etas(waypoints, route["total_duration_seconds"], departure)
 
-        weather_data, road_data, alerts_by_segment, chain_controls, sources = await fetch_all_weather(waypoints, etas)
+        raw_weather = await fetch_raw_weather(waypoints)
 
-        segments = build_segments(
-            waypoints, etas, route["steps"],
-            weather_data, road_data, alerts_by_segment,
-            chain_controls=chain_controls,
-        )
+        # Selected departure data (backward compat)
+        selected = build_slot_data(departure, waypoints, route, raw_weather)
 
-        all_alerts = []
-        seen = set()
-        for i, seg_alerts in enumerate(alerts_by_segment):
-            for alert in seg_alerts:
-                key = alert.get("headline", "")
-                if key not in seen:
-                    seen.add(key)
-                    alert_with_segments = {**alert, "affected_segments": [i]}
-                    all_alerts.append(alert_with_segments)
-                else:
-                    for a in all_alerts:
-                        if a.get("headline") == key:
-                            a["affected_segments"].append(i)
+        # Compute all slider slots
+        now_local = datetime.now(tz=timezone.utc).astimezone(departure.tzinfo)
+        slot_times = compute_slider_range(departure, now_local)
+        slots = {}
+        for slot_dep in slot_times:
+            slots[slot_dep.isoformat()] = build_slot_data(slot_dep, waypoints, route, raw_weather)
 
         total_miles = round(route["total_distance_meters"] / 1609.344, 1)
         total_minutes = round(route["total_duration_seconds"] / 60)
-        arrival = departure + timedelta(seconds=route["total_duration_seconds"])
 
         return {
             "route": {
@@ -215,12 +238,19 @@ def route_weather():
                 "total_distance_miles": total_miles,
                 "total_duration_minutes": total_minutes,
                 "departure": departure.isoformat(),
-                "arrival": arrival.isoformat(),
+                "arrival": selected["arrival"],
                 "polyline": route["polyline"],
             },
-            "segments": segments,
-            "alerts": all_alerts,
-            "sources": sources,
+            "segments": selected["segments"],
+            "alerts": selected["alerts"],
+            "sources": raw_weather["sources"],
+            "slots": slots,
+            "slider_range": {
+                "min": slot_times[0].isoformat(),
+                "max": slot_times[-1].isoformat(),
+                "step_hours": 1,
+                "selected": departure.isoformat(),
+            },
         }
 
     try:

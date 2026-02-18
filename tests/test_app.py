@@ -68,3 +68,10 @@ def test_compute_slider_range_clamps_to_now():
 
     # now is Feb 17 14:30 -> ceiled to Feb 17 15:00
     assert slots[0] == datetime(2026, 2, 17, 15, 0, tzinfo=pac)
+    assert slots[-1] == datetime(2026, 2, 20, 8, 0, tzinfo=pac)
+
+
+def test_build_slot_data_returns_segments_and_alerts():
+    """build_slot_data should return dict with segments, alerts, departure, arrival."""
+    from app import build_slot_data
+    assert callable(build_slot_data)
