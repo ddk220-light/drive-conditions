@@ -284,7 +284,7 @@ def compute_adjusted_etas(waypoints, total_duration_seconds, departure,
     # Step 3: Compute adjusted_time per segment
     adjusted_times = []
     for i, bt in enumerate(base_times):
-        seg_slow = segment_slowdowns[i] if segment_slowdowns is not None else 1.0
+        seg_slow = segment_slowdowns[i] if segment_slowdowns is not None and i < len(segment_slowdowns) else 1.0
         effective = base_speed_factor * seg_slow
         effective = max(effective, 0.1)  # floor at 0.1 to prevent division by zero
         adjusted_times.append(bt / effective)

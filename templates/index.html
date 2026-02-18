@@ -1105,7 +1105,16 @@ body {
     // Route metadata
     routeMeta.style.display = "flex";
     metaDist.textContent = route.total_distance_miles + " mi";
-    metaDur.textContent = formatDuration(route.total_duration_minutes);
+    // Compute adjusted duration from departure/arrival if available
+    var adjustedMinutes = route.total_duration_minutes;
+    if (route.departure && route.arrival) {
+      var depMs = new Date(route.departure).getTime();
+      var arrMs = new Date(route.arrival).getTime();
+      if (!isNaN(depMs) && !isNaN(arrMs)) {
+        adjustedMinutes = Math.round((arrMs - depMs) / 60000);
+      }
+    }
+    metaDur.textContent = formatDuration(adjustedMinutes);
     metaRoute.textContent = route.summary || "";
 
     // Alerts at top of panel
@@ -1384,7 +1393,7 @@ body {
     }
 
     // Overall severity
-    var maxSeverity = Math.max.apply(null, segments.map(function(s) { return s.severity_score; }));
+    var maxSeverity = Math.max.apply(null, segments.filter(function(s) { return s.type !== "rest_stop"; }).map(function(s) { return s.severity_score; }));
     if (maxSeverity <= 3) {
       parts.unshift("ROUTE SUMMARY: Conditions look good.");
     } else if (maxSeverity <= 6) {
