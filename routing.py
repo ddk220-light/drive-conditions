@@ -248,6 +248,57 @@ def compute_etas(waypoints, total_duration_seconds, departure):
     return etas
 
 
+def compute_adjusted_etas(waypoints, total_duration_seconds, departure,
+                          base_speed_factor=1.0, segment_slowdowns=None):
+    """Compute ETAs with per-segment weather slowdowns.
+
+    Args:
+        waypoints: List of (lat, lon) tuples or dicts with lat/lon keys.
+        total_duration_seconds: Base trip duration in seconds.
+        departure: datetime of departure.
+        base_speed_factor: Global speed multiplier (e.g. 0.5 = half speed).
+        segment_slowdowns: Optional list of per-segment factors. segment_slowdowns[i]
+            applies to travel from waypoints[i] to waypoints[i+1]. A value of 0.7
+            means 70% of normal speed (segment takes 1/0.7 longer).
+
+    Returns:
+        List of datetime ETAs, one per waypoint.
+    """
+    if len(waypoints) <= 1:
+        return [departure]
+
+    # Step 1: Compute segment distances using haversine
+    seg_distances = []
+    for i in range(1, len(waypoints)):
+        lat1, lon1 = _coords(waypoints[i - 1])
+        lat2, lon2 = _coords(waypoints[i])
+        seg_distances.append(haversine_miles(lat1, lon1, lat2, lon2))
+
+    total_distance = sum(seg_distances)
+    if total_distance == 0:
+        return [departure] * len(waypoints)
+
+    # Step 2: Compute base_time per segment proportional to distance
+    base_times = [(d / total_distance) * total_duration_seconds for d in seg_distances]
+
+    # Step 3: Compute adjusted_time per segment
+    adjusted_times = []
+    for i, bt in enumerate(base_times):
+        seg_slow = segment_slowdowns[i] if segment_slowdowns is not None else 1.0
+        effective = base_speed_factor * seg_slow
+        effective = max(effective, 0.1)  # floor at 0.1 to prevent division by zero
+        adjusted_times.append(bt / effective)
+
+    # Step 4: Build ETAs from cumulative adjusted times
+    etas = [departure]
+    cumulative = 0.0
+    for at in adjusted_times:
+        cumulative += at
+        etas.append(departure + timedelta(seconds=cumulative))
+
+    return etas
+
+
 async def fetch_route(origin, destination, departure_time):
     """Fetch route from Google Routes API."""
     url = "https://routes.googleapis.com/directions/v2:computeRoutes"

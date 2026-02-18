@@ -1,5 +1,5 @@
 import math
-from routing import decode_polyline, sample_waypoints, compute_etas, haversine_miles, find_closest_polyline_point, build_station_aware_waypoints
+from routing import decode_polyline, sample_waypoints, compute_etas, compute_adjusted_etas, haversine_miles, find_closest_polyline_point, build_station_aware_waypoints
 from datetime import datetime, timezone, timedelta
 
 def test_decode_polyline_basic():
@@ -125,3 +125,42 @@ def test_station_aware_waypoints_fills_gaps():
     # There should be fill waypoints covering the 100+ mile gap after the station
     fill_wps = [w for w in result if w["type"] == "fill"]
     assert len(fill_wps) >= 4  # origin + destination + at least 2 gap fills
+
+
+def test_adjusted_etas_no_slowdown():
+    """With factor 1.0 and no segment slowdowns, matches compute_etas."""
+    waypoints = [(37.0, -122.0), (37.1, -122.1), (37.2, -122.2)]
+    departure = datetime(2026, 2, 18, 8, 0)
+    duration = 3600
+    regular = compute_etas(waypoints, duration, departure)
+    adjusted = compute_adjusted_etas(waypoints, duration, departure, 1.0, None)
+    for r, a in zip(regular, adjusted):
+        assert abs((r - a).total_seconds()) < 1
+
+
+def test_adjusted_etas_base_slowdown():
+    """With factor 0.5, total trip takes 2x longer."""
+    waypoints = [(37.0, -122.0), (37.2, -122.2)]
+    departure = datetime(2026, 2, 18, 8, 0)
+    duration = 3600
+    adjusted = compute_adjusted_etas(waypoints, duration, departure, 0.5, None)
+    total_adjusted = (adjusted[-1] - adjusted[0]).total_seconds()
+    assert abs(total_adjusted - 7200) < 1
+
+
+def test_adjusted_etas_per_segment():
+    """Per-segment slowdowns produce different segment durations."""
+    waypoints = [
+        {"lat": 37.0, "lon": -122.0, "type": "fill", "station": None, "along_route_miles": 0},
+        {"lat": 37.1, "lon": -122.1, "type": "fill", "station": None, "along_route_miles": 10},
+        {"lat": 37.2, "lon": -122.2, "type": "fill", "station": None, "along_route_miles": 20},
+    ]
+    departure = datetime(2026, 2, 18, 8, 0)
+    duration = 3600
+    # Segment 0→1 has 0.5x slowdown (takes 2x), segment 1→2 has 1.0 (normal)
+    slowdowns = [0.5, 1.0]
+    adjusted = compute_adjusted_etas(waypoints, duration, departure, 1.0, slowdowns)
+    seg1_time = (adjusted[1] - adjusted[0]).total_seconds()
+    seg2_time = (adjusted[2] - adjusted[1]).total_seconds()
+    # Segment 1 should take ~2x segment 2 (same distance but half speed)
+    assert seg1_time > seg2_time * 1.8
