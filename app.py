@@ -24,6 +24,26 @@ def alert_active_at(alert, eta):
     return expires > eta
 
 
+def compute_slider_range(departure, now):
+    """Compute hourly departure slots from max(now, departure-48h) to departure+48h."""
+    range_start = max(now, departure - timedelta(hours=48))
+    # Ceil to next hour
+    if range_start.minute > 0 or range_start.second > 0:
+        range_start = range_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    else:
+        range_start = range_start.replace(minute=0, second=0, microsecond=0)
+
+    range_end = departure + timedelta(hours=48)
+    range_end = range_end.replace(minute=0, second=0, microsecond=0)
+
+    slots = []
+    current = range_start
+    while current <= range_end:
+        slots.append(current)
+        current += timedelta(hours=1)
+    return slots
+
+
 app = Flask(__name__)
 
 
