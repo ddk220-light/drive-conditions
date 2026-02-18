@@ -1,5 +1,5 @@
 import math
-from routing import decode_polyline, sample_waypoints, compute_etas, haversine_miles, find_closest_polyline_point
+from routing import decode_polyline, sample_waypoints, compute_etas, haversine_miles, find_closest_polyline_point, build_station_aware_waypoints
 from datetime import datetime, timezone, timedelta
 
 def test_decode_polyline_basic():
@@ -57,3 +57,54 @@ def test_find_closest_polyline_point_far_away():
     points = [(37.0, -122.0), (38.0, -122.0), (39.0, -122.0)]
     dist_from_route, along_route_miles = find_closest_polyline_point(points, 35.0, -118.0)
     assert dist_from_route > 100  # far from route
+
+
+def test_station_aware_waypoints_with_stations():
+    """Stations near route become waypoints; origin and destination always included."""
+    # Route: roughly 100-mile straight line
+    points = [(37.0, -122.0), (37.5, -122.0), (38.0, -122.0), (38.5, -122.0), (39.0, -122.0)]
+    stations = [
+        {"location": {"latitude": 38.0, "longitude": -121.98, "locationName": "Mid Station"}},
+    ]
+    result = build_station_aware_waypoints(points, stations)
+    assert len(result) >= 3  # origin + station + destination at minimum
+    # First should be origin (fill), last should be destination (fill)
+    assert result[0]["type"] == "fill"
+    assert result[-1]["type"] == "fill"
+    # Station should be in there
+    rwis_wps = [w for w in result if w["type"] == "rwis"]
+    assert len(rwis_wps) == 1
+    assert rwis_wps[0]["station"]["location"]["locationName"] == "Mid Station"
+
+
+def test_station_aware_waypoints_no_stations():
+    """With no stations, should fall back to 15-mile interval fill waypoints."""
+    points = [(37.0, -122.0), (37.5, -122.0), (38.0, -122.0), (38.5, -122.0), (39.0, -122.0)]
+    result = build_station_aware_waypoints(points, [])
+    assert len(result) >= 3
+    assert all(w["type"] == "fill" for w in result)
+
+
+def test_station_aware_waypoints_deduplicates_close_stations():
+    """Stations < 5 miles apart: only keep first one."""
+    points = [(37.0, -122.0), (38.0, -122.0), (39.0, -122.0)]
+    stations = [
+        {"location": {"latitude": 38.0, "longitude": -122.0, "locationName": "Station A"}},
+        {"location": {"latitude": 38.02, "longitude": -122.0, "locationName": "Station B"}},  # ~1.4 miles from A
+    ]
+    result = build_station_aware_waypoints(points, stations)
+    rwis_wps = [w for w in result if w["type"] == "rwis"]
+    assert len(rwis_wps) == 1  # Station B skipped (too close to A)
+
+
+def test_station_aware_waypoints_fills_gaps():
+    """Gaps > 30 miles between stations get fill waypoints at 15-mile intervals."""
+    # Route: ~138 miles. Stations only at start area.
+    points = [(37.0, -122.0), (37.5, -122.0), (38.0, -122.0), (38.5, -122.0), (39.0, -122.0)]
+    stations = [
+        {"location": {"latitude": 37.05, "longitude": -122.0, "locationName": "Near Start"}},
+    ]
+    result = build_station_aware_waypoints(points, stations)
+    # There should be fill waypoints covering the 100+ mile gap after the station
+    fill_wps = [w for w in result if w["type"] == "fill"]
+    assert len(fill_wps) >= 4  # origin + destination + at least 2 gap fills

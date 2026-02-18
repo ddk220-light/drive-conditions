@@ -91,6 +91,131 @@ def sample_waypoints(points, interval_miles=None):
     return sampled
 
 
+def build_station_aware_waypoints(points, rwis_stations,
+                                   snap_radius=None, min_spacing=None,
+                                   gap_threshold=None, fill_interval=None):
+    """Build waypoints prioritizing RWIS station locations along the route.
+
+    Args:
+        points: Decoded polyline points [(lat, lon), ...].
+        rwis_stations: List of RWIS station dicts with location.latitude/longitude.
+        snap_radius: Max miles from route to consider a station (default RWIS_SNAP_RADIUS_MILES).
+        min_spacing: Min miles between adjacent stations (default RWIS_MIN_STATION_SPACING_MILES).
+        gap_threshold: Miles beyond which to insert fill waypoints (default GAP_FILL_THRESHOLD_MILES).
+        fill_interval: Miles between fill waypoints in gaps (default WAYPOINT_INTERVAL_MILES).
+
+    Returns:
+        List of dicts: {"lat": float, "lon": float, "type": "rwis"|"fill",
+                        "station": <station dict>|None, "along_route_miles": float}
+    """
+    from config import (RWIS_SNAP_RADIUS_MILES, RWIS_MIN_STATION_SPACING_MILES,
+                        GAP_FILL_THRESHOLD_MILES, WAYPOINT_INTERVAL_MILES)
+    if snap_radius is None:
+        snap_radius = RWIS_SNAP_RADIUS_MILES
+    if min_spacing is None:
+        min_spacing = RWIS_MIN_STATION_SPACING_MILES
+    if gap_threshold is None:
+        gap_threshold = GAP_FILL_THRESHOLD_MILES
+    if fill_interval is None:
+        fill_interval = WAYPOINT_INTERVAL_MILES
+
+    if len(points) <= 1:
+        return [{"lat": points[0][0], "lon": points[0][1], "type": "fill",
+                 "station": None, "along_route_miles": 0.0}]
+
+    # Compute total route length
+    cumulative_dists = [0.0]
+    for i in range(1, len(points)):
+        d = haversine_miles(points[i-1][0], points[i-1][1], points[i][0], points[i][1])
+        cumulative_dists.append(cumulative_dists[-1] + d)
+    total_route_miles = cumulative_dists[-1]
+
+    # Match stations to route
+    candidates = []
+    for station in rwis_stations:
+        loc = station.get("location", {})
+        slat = loc.get("latitude")
+        slon = loc.get("longitude")
+        if slat is None or slon is None:
+            continue
+        dist_from_route, along_miles = find_closest_polyline_point(points, slat, slon)
+        if dist_from_route <= snap_radius:
+            candidates.append({
+                "station": station,
+                "lat": slat,
+                "lon": slon,
+                "along_route_miles": along_miles,
+                "dist_from_route": dist_from_route,
+            })
+
+    # Sort by along-route position
+    candidates.sort(key=lambda c: c["along_route_miles"])
+
+    # Deduplicate: skip stations too close to previous
+    station_waypoints = []
+    for c in candidates:
+        if station_waypoints:
+            prev = station_waypoints[-1]
+            if abs(c["along_route_miles"] - prev["along_route_miles"]) < min_spacing:
+                continue
+        station_waypoints.append(c)
+
+    # Build final waypoint list with origin, stations, destination, and gap fills
+    result = []
+
+    # Origin
+    origin = {"lat": points[0][0], "lon": points[0][1], "type": "fill",
+              "station": None, "along_route_miles": 0.0}
+    result.append(origin)
+
+    # Insert station waypoints
+    for sw in station_waypoints:
+        result.append({
+            "lat": sw["lat"], "lon": sw["lon"], "type": "rwis",
+            "station": sw["station"], "along_route_miles": sw["along_route_miles"],
+        })
+
+    # Destination
+    dest = {"lat": points[-1][0], "lon": points[-1][1], "type": "fill",
+            "station": None, "along_route_miles": total_route_miles}
+    result.append(dest)
+
+    # Sort everything by along_route_miles
+    result.sort(key=lambda w: w["along_route_miles"])
+
+    # Fill gaps
+    filled = []
+    for i, wp in enumerate(result):
+        filled.append(wp)
+        if i < len(result) - 1:
+            gap = result[i+1]["along_route_miles"] - wp["along_route_miles"]
+            if gap > gap_threshold:
+                # Insert fill waypoints at fill_interval spacing
+                num_fills = int(gap / fill_interval)
+                for f in range(1, num_fills + 1):
+                    target_miles = wp["along_route_miles"] + f * fill_interval
+                    if target_miles >= result[i+1]["along_route_miles"]:
+                        break
+                    # Find the polyline point closest to target_miles
+                    fill_pt = _interpolate_along_route(points, cumulative_dists, target_miles)
+                    filled.append({
+                        "lat": fill_pt[0], "lon": fill_pt[1], "type": "fill",
+                        "station": None, "along_route_miles": target_miles,
+                    })
+
+    # Re-sort after filling
+    filled.sort(key=lambda w: w["along_route_miles"])
+    return filled
+
+
+def _interpolate_along_route(points, cumulative_dists, target_miles):
+    """Find the polyline point at a given distance along the route."""
+    for i in range(1, len(points)):
+        if cumulative_dists[i] >= target_miles:
+            return points[i]
+    return points[-1]
+
+
 def compute_etas(waypoints, total_duration_seconds, departure):
     """Compute ETA at each waypoint assuming constant speed along the route."""
     if len(waypoints) <= 1:
