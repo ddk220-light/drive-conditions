@@ -84,6 +84,22 @@ body {
 .form-group input[type="text"] { width: 200px; }
 .form-group input[type="datetime-local"] { width: 210px; }
 
+#btn-swap {
+  background: none;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 18px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  line-height: 1;
+}
+#btn-swap:hover {
+  color: #e2e8f0;
+  border-color: #3b82f6;
+}
+
 /* Google Places Autocomplete element styling */
 .form-group gmp-place-autocomplete {
   width: 200px;
@@ -549,6 +565,7 @@ body {
   <div class="form-group">
     <label for="origin">From</label>
     <input type="text" id="origin" value="San Mateo, CA" placeholder="Origin">
+    <button type="button" id="btn-swap" title="Swap origin and destination">&#8646;</button>
     <label for="destination">To</label>
     <input type="text" id="destination" value="Mendocino, CA" placeholder="Destination">
     <label for="departure">Depart</label>
@@ -619,6 +636,7 @@ body {
   var destEl        = document.getElementById("destination");
   const departEl      = document.getElementById("departure");
   const btnRoute      = document.getElementById("btn-route");
+  const btnSwap       = document.getElementById("btn-swap");
   const mapDiv        = document.getElementById("map");
   const panelBody     = document.getElementById("panel-body");
   const placeholder   = document.getElementById("placeholder");
@@ -1329,6 +1347,12 @@ body {
   }
 
   /* ── Event listeners ───────────────────────────────── */
+  btnSwap.addEventListener("click", function() {
+    var tmp = originEl.value;
+    originEl.value = destEl.value;
+    destEl.value = tmp;
+  });
+
   btnRoute.addEventListener("click", fetchRoute);
 
   // Enter key on departure input triggers route fetch
@@ -1400,7 +1424,14 @@ body {
       },
       set value(v) {
         confirmedValue = v;
-        if (restored) inputEl.value = v;
+        if (restored) {
+          inputEl.value = v;
+        } else {
+          try {
+            var inner = ac.shadowRoot && ac.shadowRoot.querySelector("input");
+            if (inner) inner.value = v;
+          } catch (e) {}
+        }
       },
       el: ac,
     };
