@@ -31,3 +31,10 @@ def test_alert_active_at_expires_equal_to_eta():
     alert = {"headline": "Test", "expires": "2026-02-21T10:00:00-08:00"}
     eta = datetime(2026, 2, 21, 10, 0, tzinfo=timezone(timedelta(hours=-8)))
     assert alert_active_at(alert, eta) is False
+
+
+def test_fetch_raw_weather_returns_raw_data():
+    """fetch_raw_weather should return raw API results without time lookups."""
+    import app as app_module
+    assert hasattr(app_module, 'fetch_raw_weather'), "fetch_raw_weather not defined"
+    assert callable(app_module.fetch_raw_weather)

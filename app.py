@@ -27,8 +27,8 @@ def alert_active_at(alert, eta):
 app = Flask(__name__)
 
 
-async def fetch_all_weather(waypoints, etas):
-    """Fetch weather from all 3 sources for all waypoints in parallel."""
+async def fetch_raw_weather(waypoints):
+    """Fetch raw weather data from all sources (no ETA lookup)."""
     import aiohttp
 
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
@@ -73,6 +73,29 @@ async def fetch_all_weather(waypoints, etas):
     if not isinstance(results[5], Exception) and rwis_stations:
         sources_set.add("Caltrans CWWP2")
 
+    sources = sorted(sources_set)
+
+    return {
+        "openmeteo": openmeteo_results,
+        "nws": nws_results,
+        "nws_alerts": nws_alerts,
+        "tomorrow": tomorrow_results,
+        "chain_controls": chain_controls,
+        "rwis_stations": rwis_stations,
+        "sources": sources,
+    }
+
+
+def resolve_weather_for_etas(raw, waypoints, etas):
+    """Look up weather at specific ETAs from pre-fetched raw data."""
+    openmeteo_results = raw["openmeteo"]
+    nws_results = raw["nws"]
+    nws_alerts = raw["nws_alerts"]
+    tomorrow_results = raw["tomorrow"]
+    chain_controls = raw["chain_controls"]
+    rwis_stations = raw["rwis_stations"]
+    sources = raw["sources"]
+
     weather_data = []
     road_data = []
     alerts_by_segment = []
@@ -100,8 +123,13 @@ async def fetch_all_weather(waypoints, etas):
         seg_alerts = [a for a in seg_alerts if alert_active_at(a, eta)]
         alerts_by_segment.append(seg_alerts)
 
-    sources = sorted(sources_set)
     return weather_data, road_data, alerts_by_segment, chain_controls, sources
+
+
+async def fetch_all_weather(waypoints, etas):
+    """Fetch weather from all sources and resolve for given ETAs."""
+    raw = await fetch_raw_weather(waypoints)
+    return resolve_weather_for_etas(raw, waypoints, etas)
 
 
 @app.route("/api/route-weather")
