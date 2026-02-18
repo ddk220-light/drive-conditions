@@ -75,3 +75,45 @@ def test_build_slot_data_returns_segments_and_alerts():
     """build_slot_data should return dict with segments, alerts, departure, arrival."""
     from app import build_slot_data
     assert callable(build_slot_data)
+
+
+def test_fetch_raw_weather_accepts_rwis_stations_param():
+    """fetch_raw_weather should accept an optional rwis_stations parameter."""
+    import inspect
+    from app import fetch_raw_weather
+    sig = inspect.signature(fetch_raw_weather)
+    assert "rwis_stations" in sig.parameters, "fetch_raw_weather should accept rwis_stations param"
+
+
+def test_resolve_weather_uses_station_tag():
+    """When a waypoint has type='rwis' and a station ref, resolve should use it directly."""
+    from app import resolve_weather_for_etas
+
+    station = {
+        "location": {"latitude": 38.0, "longitude": -122.0, "locationName": "Test Station"},
+        "surfaceStatus": "Wet",
+        "surfaceTemperature": {"value": 32},
+        "airTemperature": {"value": 35},
+        "visibility": {"value": 0.5},
+        "windSpeed": {"value": 20},
+        "precipitationType": "Rain",
+    }
+
+    waypoints = [
+        {"lat": 38.0, "lon": -122.0, "type": "rwis", "station": station},
+    ]
+
+    raw = {
+        "openmeteo": [None],
+        "nws": [None],
+        "nws_alerts": [[]],
+        "tomorrow": [[]],
+        "chain_controls": [],
+        "rwis_stations": [station],
+        "sources": [],
+    }
+
+    etas = [datetime(2026, 2, 21, 8, 0, tzinfo=timezone.utc)]
+    weather_data, road_data, alerts_by_segment, cc, sources = resolve_weather_for_etas(raw, waypoints, etas)
+    assert road_data[0] is not None
+    assert road_data[0]["pavement_status"] == "Wet"

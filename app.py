@@ -13,6 +13,16 @@ from road_conditions import fetch_chain_controls, fetch_rwis_stations, match_rwi
 from assembler import merge_weather, build_segments
 
 
+def _wp_lat(wp):
+    """Extract latitude from a waypoint (tuple or dict)."""
+    return wp["lat"] if isinstance(wp, dict) else wp[0]
+
+
+def _wp_lon(wp):
+    """Extract longitude from a waypoint (tuple or dict)."""
+    return wp["lon"] if isinstance(wp, dict) else wp[1]
+
+
 def alert_active_at(alert, eta):
     """Return True if alert is still active at the given ETA."""
     expires_str = alert.get("expires")
@@ -47,21 +57,34 @@ def compute_slider_range(departure, now):
 app = Flask(__name__)
 
 
-async def fetch_raw_weather(waypoints):
-    """Fetch raw weather data from all sources (no ETA lookup)."""
+async def fetch_raw_weather(waypoints, rwis_stations=None):
+    """Fetch raw weather data from all sources (no ETA lookup).
+
+    Args:
+        waypoints: list of (lat, lon) tuples or dicts with "lat"/"lon" keys.
+        rwis_stations: optional pre-fetched RWIS station list. When provided,
+            the function skips fetching RWIS data from the API.
+    """
     import aiohttp
 
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-        lats = [wp[0] for wp in waypoints]
-        lons = [wp[1] for wp in waypoints]
+        lats = [_wp_lat(wp) for wp in waypoints]
+        lons = [_wp_lon(wp) for wp in waypoints]
         openmeteo_task = fetch_openmeteo(lats, lons, session=session)
 
-        nws_tasks = [fetch_nws_forecast(wp[0], wp[1], session=session) for wp in waypoints]
-        nws_alert_tasks = [fetch_nws_alerts(wp[0], wp[1], session=session) for wp in waypoints]
-        tomorrow_tasks = [fetch_tomorrow(wp[0], wp[1], session=session) for wp in waypoints]
+        nws_tasks = [fetch_nws_forecast(_wp_lat(wp), _wp_lon(wp), session=session) for wp in waypoints]
+        nws_alert_tasks = [fetch_nws_alerts(_wp_lat(wp), _wp_lon(wp), session=session) for wp in waypoints]
+        tomorrow_tasks = [fetch_tomorrow(_wp_lat(wp), _wp_lon(wp), session=session) for wp in waypoints]
 
         cc_task = fetch_chain_controls(session=session)
-        rwis_task = fetch_rwis_stations(session=session)
+
+        # Only fetch RWIS from API if not provided externally
+        if rwis_stations is None:
+            rwis_task = fetch_rwis_stations(session=session)
+        else:
+            async def _return_stations():
+                return rwis_stations
+            rwis_task = _return_stations()
 
         results = await asyncio.gather(
             openmeteo_task,
@@ -78,7 +101,7 @@ async def fetch_raw_weather(waypoints):
     nws_alerts = results[2] if not isinstance(results[2], Exception) else [[] for _ in waypoints]
     tomorrow_results = results[3] if not isinstance(results[3], Exception) else [[] for _ in waypoints]
     chain_controls = results[4] if not isinstance(results[4], Exception) else []
-    rwis_stations = results[5] if not isinstance(results[5], Exception) else []
+    rwis_result = results[5] if not isinstance(results[5], Exception) else []
 
     # Track which sources actually returned data
     sources_set = set()
@@ -90,7 +113,7 @@ async def fetch_raw_weather(waypoints):
         sources_set.add("Tomorrow.io")
     if not isinstance(results[4], Exception) and chain_controls:
         sources_set.add("Caltrans CWWP2")
-    if not isinstance(results[5], Exception) and rwis_stations:
+    if not isinstance(results[5], Exception) and rwis_result:
         sources_set.add("Caltrans CWWP2")
 
     sources = sorted(sources_set)
@@ -101,7 +124,7 @@ async def fetch_raw_weather(waypoints):
         "nws_alerts": nws_alerts,
         "tomorrow": tomorrow_results,
         "chain_controls": chain_controls,
-        "rwis_stations": rwis_stations,
+        "rwis_stations": rwis_result,
         "sources": sources,
     }
 
@@ -136,7 +159,19 @@ def resolve_weather_for_etas(raw, waypoints, etas):
         merged = merge_weather(nws=nws_parsed, openmeteo=openmeteo_parsed, tomorrow=tomorrow_parsed)
         weather_data.append(merged)
 
-        rwis_match = match_rwis_to_waypoint(rwis_stations, wp)
+        # RWIS matching: use tagged station directly when available,
+        # otherwise fall back to nearest-station search
+        if isinstance(wp, dict) and wp.get("type") == "rwis" and wp.get("station"):
+            # Waypoint already tagged with its RWIS station -- match with
+            # a large radius so the single-element list always matches.
+            rwis_match = match_rwis_to_waypoint(
+                [wp["station"]],
+                (_wp_lat(wp), _wp_lon(wp)),
+                radius_miles=9999,
+            )
+        else:
+            wp_tuple = (_wp_lat(wp), _wp_lon(wp))
+            rwis_match = match_rwis_to_waypoint(rwis_stations, wp_tuple)
         road_data.append(rwis_match)
 
         seg_alerts = nws_alerts[i] if i < len(nws_alerts) else []
