@@ -2,7 +2,7 @@
 import aiohttp
 from datetime import datetime, timezone, timedelta
 from config import TOMORROW_API_KEY
-from utils import c_to_f, kmh_to_mph, km_to_miles
+from utils import c_to_f, kmh_to_mph, km_to_miles, cached_weather_fetcher
 
 TOMORROW_URL = "https://api.tomorrow.io/v4/timelines"
 
@@ -58,6 +58,7 @@ def find_data_for_time(intervals, target_time):
     return None
 
 
+@cached_weather_fetcher(ttl_seconds=3600, max_concurrent=3, round_digits=2)
 async def fetch_tomorrow(lat, lon, session=None):
     """Fetch hourly forecast from Tomorrow.io for a single point.
     Returns list of interval dicts.

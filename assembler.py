@@ -165,6 +165,7 @@ def merge_weather(nws=None, openmeteo=None, tomorrow=None):
 
 def compute_severity(weather, road_conditions=None, alerts=None, light_level="day"):
     """Compute severity score (0-10) and label (green/yellow/red)."""
+    from config import SEVERITY_VISIBILITY, SEVERITY_WIND, SEVERITY_PRECIP
     score = 0
     alerts = alerts or []
 
@@ -175,35 +176,23 @@ def compute_severity(weather, road_conditions=None, alerts=None, light_level="da
 
     # Visibility scoring
     if vis is not None:
-        if vis < 0.25:
-            score += 4
-        elif vis < 1.0:
-            score += 3
-        elif vis < 3.0:
-            score += 2
-        elif vis < 5.0:
-            score += 1
+        for threshold, penalty in SEVERITY_VISIBILITY:
+            if vis < threshold:
+                score += penalty
+                break
 
     # Wind scoring
     effective_wind = max(wind, gusts * 0.7) if gusts else wind
-    if effective_wind > 45:
-        score += 3
-    elif effective_wind > 35:
-        score += 2.5
-    elif effective_wind >= 25:
-        score += 1.5
-    elif effective_wind > 20:
-        score += 1
+    for threshold, penalty in SEVERITY_WIND:
+        if effective_wind > threshold:
+            score += penalty
+            break
 
     # Precipitation scoring
-    if precip > 8.0:
-        score += 3
-    elif precip > 4.0:
-        score += 2.5
-    elif precip > 2.0:
-        score += 1.5
-    elif precip > 0.5:
-        score += 1
+    for threshold, penalty in SEVERITY_PRECIP:
+        if precip > threshold:
+            score += penalty
+            break
 
     # Road conditions
     if road_conditions:

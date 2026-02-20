@@ -53,6 +53,9 @@ def find_forecast_for_time(periods, target_time):
     return None
 
 
+from utils import cached_weather_fetcher
+
+@cached_weather_fetcher(ttl_seconds=3600, max_concurrent=5, round_digits=2)
 async def fetch_nws_forecast(lat, lon, session=None):
     """Fetch hourly forecast from NWS for a lat/lon point.
     Two-step: /points -> /gridpoints forecast/hourly
@@ -86,6 +89,7 @@ async def fetch_nws_forecast(lat, lon, session=None):
             await session.close()
 
 
+@cached_weather_fetcher(ttl_seconds=3600, max_concurrent=5, round_digits=2)
 async def fetch_nws_alerts(lat, lon, session=None):
     """Fetch active weather alerts near a point."""
     headers = {"User-Agent": NWS_USER_AGENT, "Accept": "application/geo+json"}

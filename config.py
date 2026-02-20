@@ -20,3 +20,29 @@ CALTRANS_RWIS_DISTRICTS = [2, 3, 6, 8, 9, 10]
 
 CALTRANS_CC_URL = "https://cwwp2.dot.ca.gov/data/d{district}/cc/ccStatusD{district}.json"
 CALTRANS_RWIS_URL = "https://cwwp2.dot.ca.gov/data/d{district}/rwis/rwisStatusD{district}.json"
+
+# Severity scoring thresholds
+
+# Visibility: (miles_less_than, score_penalty)
+SEVERITY_VISIBILITY = [
+    (0.25, 4),
+    (1.0, 3),
+    (3.0, 2),
+    (5.0, 1),
+]
+
+# Wind: (mph_greater_than, score_penalty)
+SEVERITY_WIND = [
+    (45, 3),
+    (35, 2.5),
+    (25, 1.5),
+    (20, 1),
+]
+
+# Precipitation: (mm_hr_greater_than, score_penalty)
+SEVERITY_PRECIP = [
+    (8.0, 3),
+    (4.0, 2.5),
+    (2.0, 1.5),
+    (0.5, 1),
+]
