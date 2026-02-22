@@ -1,0 +1,15 @@
+ * Serving Flask app 'app'
+ * Debug mode: on
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 100-840-798
+127.0.0.1 - - [20/Feb/2026 11:36:53] "GET /api/route-weather?origin=Sacramento,+CA&destination=Reno,+NV&departure=2026-02-20T20:36:46Z HTTP/1.1" 200 -
+127.0.0.1 - - [20/Feb/2026 11:38:52] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [20/Feb/2026 11:38:53] "[33mGET /apple-touch-icon-precomposed.png HTTP/1.1[0m" 404 -
+127.0.0.1 - - [20/Feb/2026 11:38:53] "[33mGET /apple-touch-icon.png HTTP/1.1[0m" 404 -
+127.0.0.1 - - [20/Feb/2026 11:38:53] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+127.0.0.1 - - [20/Feb/2026 11:39:03] "GET /api/route-weather?origin=San%20Mateo,%20CA&destination=Mendocino,%20CA&departure=2026-02-21T08:00&speed_factor=1&rest_enabled=false&rest_interval=60&rest_duration=20 HTTP/1.1" 200 -
+127.0.0.1 - - [20/Feb/2026 11:41:07] "GET /api/route-weather?origin=Mendocino,%20CA&destination=San%20Mateo,%20CA&departure=2026-02-22T08:00&speed_factor=1&rest_enabled=false&rest_interval=60&rest_duration=20 HTTP/1.1" 200 -
